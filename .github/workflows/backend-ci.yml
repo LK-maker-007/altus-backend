@@ -135,6 +135,7 @@ jobs:
           R2_SECRET_ACCESS_KEY: ci
           R2_ENDPOINT_URL: https://ci.r2.cloudflarestorage.com
           R2_PUBLIC_URL: https://media.ci.yali.app
+          SMS_PROVIDER: twilio
 
       - name: Migration linter
         # WHY: Detects backwards-incompatible migrations before they merge.
