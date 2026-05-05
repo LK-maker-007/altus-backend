@@ -53,8 +53,8 @@ jobs:
           zizmor --format sarif .github/workflows/ > zizmor.sarif || true
 
       - name: Upload SARIF to GitHub Security tab
-        # SHA-pinned. Tag v3 = commit f779452ac5f3b9ef2c4e85a1e82ed6b6b809e6e5 (verified 2026-04-25)
-        uses: github/codeql-action/upload-sarif@f779452ac5f3b9ef2c4e85a1e82ed6b6b809e6e5 # v3
+        # SHA-pinned. Tag v3 = commit 53e96ec3b35fce51c141c0d6f0e31028a448722d (verified 2026-05-05 via gh api)
+        uses: github/codeql-action/upload-sarif@53e96ec3b35fce51c141c0d6f0e31028a448722d # v3
         with:
           sarif_file: zizmor.sarif
           category: zizmor

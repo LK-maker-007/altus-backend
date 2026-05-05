@@ -42,6 +42,25 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15  # Hanging lint should not burn 6h of runner minutes
 
+    services:
+      postgres:
+        # WHY Postgres in the Quality job:
+        #   django-migration-linter --sql-analyser postgresql executes EXPLAIN
+        #   on real SQL against a live DB connection to detect locking operations.
+        #   Without a running Postgres, the linter crashes with Connection Refused.
+        image: postgres:16
+        env:
+          POSTGRES_USER: yali_app
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: ci
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
     steps:
       # SHA-pinned to prevent supply-chain attacks via mutable tag rewrites.
       # Tag @v4 = commit 34e114876b0b11c390a56381ad16ebd13914f8d5 (verified 2026-04-25)
