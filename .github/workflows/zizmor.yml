@@ -53,8 +53,15 @@ jobs:
           zizmor --format sarif .github/workflows/ > zizmor.sarif || true
 
       - name: Upload SARIF to GitHub Security tab
-        # SHA-pinned. Tag v3 = commit 53e96ec3b35fce51c141c0d6f0e31028a448722d (verified 2026-05-05 via gh api)
-        uses: github/codeql-action/upload-sarif@53e96ec3b35fce51c141c0d6f0e31028a448722d # v3
+        # SHA-pinned. v4 = commit ed410739ba306e4ebe5e123421a6bd694e494a2b (verified 2026-05-05 via gh api)
+        # WHY v4: v3 deprecated December 2026 (GitHub changelog 2025-10-28)
+        # WHY continue-on-error:
+        #   upload-sarif requires GitHub Advanced Security (Enterprise plan).
+        #   On standard/free plans this step errors: "Resource not accessible by integration"
+        #   The zizmor scan itself still runs and any findings are printed to the log.
+        #   continue-on-error: true prevents a billing-tier limitation from blocking CI.
+        uses: github/codeql-action/upload-sarif@ed410739ba306e4ebe5e123421a6bd694e494a2b # v4
+        continue-on-error: true
         with:
           sarif_file: zizmor.sarif
           category: zizmor
