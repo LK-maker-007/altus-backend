@@ -87,7 +87,7 @@ jobs:
       - name: Verify DEBUG=False in production settings
         # Boots Django with production settings and asserts DEBUG is False.
         # Catches accidental DEBUG=True commits before they reach production.
-        run: |
+        run: |-
           python -c "
           import os
           os.environ['DJANGO_SETTINGS_MODULE'] = 'config.settings.production'
@@ -106,6 +106,7 @@ jobs:
           os.environ['R2_SECRET_ACCESS_KEY'] = 'ci'
           os.environ['R2_ENDPOINT_URL'] = 'https://ci.r2.cloudflarestorage.com'
           os.environ['R2_PUBLIC_URL'] = 'https://media.ci.yali.app'
+          os.environ['SMS_PROVIDER'] = 'twilio'
           import django; django.setup()
           from django.conf import settings
           assert not settings.DEBUG, 'DEBUG must be False in production settings'
