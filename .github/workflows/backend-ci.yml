@@ -61,29 +61,24 @@ jobs:
 
       - name: Install dependencies
         run: |
-          cd yali-backend
           pip install -r requirements/development.txt
 
       - name: Black formatting check
         run: |
-          cd yali-backend
           black --check .
 
       - name: Ruff lint check
         run: |
-          cd yali-backend
           ruff check .
 
       - name: Mypy strict type check
         run: |
-          cd yali-backend
           python -m mypy apps/ config/ manage.py --ignore-missing-imports
 
       - name: Verify DEBUG=False in production settings
         # Boots Django with production settings and asserts DEBUG is False.
         # Catches accidental DEBUG=True commits before they reach production.
         run: |
-          cd yali-backend
           python -c "
           import os
           os.environ['DJANGO_SETTINGS_MODULE'] = 'config.settings.production'
@@ -115,7 +110,6 @@ jobs:
         # Cookiecutter-Django, Sentry both run this. We were missing it.
         # Source: Django 6.0 docs — manage.py check --deploy
         run: |
-          cd yali-backend
           python manage.py check --deploy \
             --settings=config.settings.production \
             --fail-level WARNING
@@ -146,11 +140,11 @@ jobs:
         # Source: github.com/3YOURMIND/django-migration-linter (2025-Q4 active)
         # Cookiecutter-Django recommends this in CI since 2024.
         run: |
-          cd yali-backend
           pip install django-migration-linter --quiet
-          python -m django_migration_linter \
+          python manage.py lintmigrations \
             --settings=config.settings.test \
-            --warnings-as-errors
+            --warnings-as-errors \
+            --sql-analyser postgresql
         env:
           DATABASE_URL: postgresql://yali_app:ci@localhost:5432/ci
           REDIS_URL: redis://localhost:6379/0
@@ -248,7 +242,6 @@ jobs:
 
       - name: Install Python dependencies
         run: |
-          cd yali-backend
           pip install -r requirements/development.txt
 
       - name: Enable btree_gist extension
@@ -261,14 +254,12 @@ jobs:
 
       - name: Apply migrations
         run: |
-          cd yali-backend
           python manage.py migrate --noinput
 
       - name: Run test suite with coverage
         # -x: fail fast on first failure
         # --cov-fail-under=80: CI fails if global coverage drops below 80%
         run: |
-          cd yali-backend
           pytest \
             --cov=apps \
             --cov-report=xml \
@@ -355,7 +346,6 @@ jobs:
 
       - name: Install Python dependencies
         run: |
-          cd yali-backend
           pip install -r requirements/development.txt
 
       - name: Install k6
@@ -381,19 +371,16 @@ jobs:
 
       - name: Apply migrations
         run: |
-          cd yali-backend
           python manage.py migrate --noinput
 
       - name: Create k6 load test user
         # Creates the deterministic user (+919000099999) that k6's setup()
         # authenticate() flow uses. Idempotent — safe to run multiple times.
         run: |
-          cd yali-backend
           python manage.py create_load_test_user
 
       - name: Start Django server
         run: |
-          cd yali-backend
           python manage.py runserver 0.0.0.0:8000 &
           echo "DJANGO_PID=$!" >> $GITHUB_ENV
 
@@ -419,7 +406,6 @@ jobs:
         # the single source of truth. Updating config.js propagates here automatically.
         # Source: https://grafana.com/docs/k6/latest/using-k6/thresholds/
         run: |
-          cd yali-backend
           k6 run \
             --env K6_BASE_URL=${{ env.K6_BASE_URL }} \
             --env K6_TEST_PHONE=${{ env.K6_TEST_PHONE }} \

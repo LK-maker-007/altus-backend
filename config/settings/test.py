@@ -44,6 +44,8 @@ for _key, _val in _defaults.items():
 # ── Import base settings (reads env vars above) ────────────────────────────────
 from .base import *  # settings inheritance — star import is intentional (see pyproject.toml per-file-ignores)
 
+INSTALLED_APPS += ["django_migration_linter"]
+
 # ── Celery — always eager in tests ────────────────────────────────────────────
 # Tasks run synchronously in the calling thread.
 # CELERY_TASK_EAGER_PROPAGATES surfaces exceptions immediately rather than
