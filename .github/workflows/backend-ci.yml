@@ -82,7 +82,7 @@ jobs:
         #   runner this has zero performance cost (there's no cache to reuse anyway).
         #   Source: documented in requirements/development.txt §CRITICAL note.
         run: |
-          python -m mypy apps/ config/ manage.py --ignore-missing-imports --no-incremental --show-traceback
+          python -m mypy apps/ config/ manage.py --ignore-missing-imports --no-incremental
 
       - name: Verify DEBUG=False in production settings
         # Boots Django with production settings and asserts DEBUG is False.

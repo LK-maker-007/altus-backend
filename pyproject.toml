@@ -74,7 +74,15 @@ exclude = [
 ]
 
 [tool.django-stubs]
-django_settings_module = "config.settings.development"
+# WHY config.settings.test (not development):
+#   mypy's django-stubs plugin calls django.setup() at type-check time using this
+#   settings module. development.py → base.py → env("SECRET_KEY") raises
+#   ImproperlyConfigured when SECRET_KEY is not set in the environment.
+#   The mypy step in CI has no env vars (it's a static analysis tool — it
+#   shouldn't need a real database or secrets to check types).
+#   config.settings.test boots with CI-safe dummy defaults by design.
+#   Source: confirmed from CI traceback 2026-05-05.
+django_settings_module = "config.settings.test"
 
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "config.settings.test"
