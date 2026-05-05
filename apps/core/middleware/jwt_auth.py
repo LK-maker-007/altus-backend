@@ -108,7 +108,7 @@ class JWTAuthMiddleware:
             user = User.objects.select_related("complex").get(
                 id=data["user_id"], is_active=True
             )
-        except User.DoesNotExist, KeyError:
+        except (User.DoesNotExist, KeyError):
             return
 
         cast(Any, auth_request).user = user

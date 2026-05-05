@@ -4,6 +4,7 @@ from collections.abc import Sequence
 
 from django.core.cache import cache
 from django.db import OperationalError, connection
+from drf_spectacular.utils import extend_schema
 from rest_framework.authentication import BaseAuthentication
 from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
@@ -44,6 +45,27 @@ class HealthCheckView(APIView):
     permission_classes = _NO_PERMISSIONS
     authentication_classes = _NO_AUTH
 
+    @extend_schema(
+        auth=[],  # public — K8s/Docker probes have no Bearer token
+        responses={
+            200: {
+                "type": "object",
+                "properties": {
+                    "status": {"type": "string"},
+                    "checks": {"type": "object"},
+                },
+            },
+            503: {
+                "type": "object",
+                "properties": {
+                    "status": {"type": "string"},
+                    "checks": {"type": "object"},
+                },
+            },
+        },
+        summary="Health check — PostgreSQL + Redis readiness probe",
+        tags=["ops"],
+    )
     def get(self, request: Request) -> Response:
         checks: dict[str, str] = {}
         is_healthy = True

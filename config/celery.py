@@ -38,7 +38,6 @@ def _setup_task_failure_handler(sender: object, **kwargs: object) -> None:
     """
     from celery.signals import task_failure
 
-    @task_failure.connect
     def _on_task_failure(
         sender: object,
         task_id: str,
@@ -58,9 +57,6 @@ def _setup_task_failure_handler(sender: object, **kwargs: object) -> None:
           Celery would otherwise silently discard it.
 
         WHY broad except (not narrow):
-          This handler must NEVER raise. If the DB write fails (e.g. connection
-          blip), Celery's task_failure signal chain breaks and other receivers
-          are not called. Swallow all exceptions and log — the Sentry integration
           still captures the original task exception independently.
         """
         import traceback as tb
@@ -102,3 +98,5 @@ def _setup_task_failure_handler(sender: object, **kwargs: object) -> None:
                 task_name=getattr(sender, "name", "unknown"),
                 exc=str(exception),
             )
+
+    task_failure.connect(_on_task_failure, weak=False)

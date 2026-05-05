@@ -6,6 +6,7 @@ from typing import cast
 import structlog
 from django.db import models
 from django.shortcuts import get_object_or_404
+from drf_spectacular.utils import extend_schema
 from rest_framework import generics, status
 from rest_framework.exceptions import ValidationError
 from rest_framework.pagination import CursorPagination
@@ -117,6 +118,12 @@ class AnnouncementMarkReadView(APIView):
 
     permission_classes = _AUTH
 
+    @extend_schema(
+        request=None,
+        responses={204: None},
+        summary="Mark an announcement as read (idempotent)",
+        tags=["community"],
+    )
     def post(self, request: Request, pk: str) -> Response:
         announcement = get_object_or_404(
             Announcement.objects.filter(is_active=True),

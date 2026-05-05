@@ -80,24 +80,27 @@ python manage.py squashmigrations <app_name> <from> <to>
 ## Development Server
 
 ```bash
-# Start Django dev server (hot reload)
-make dev
-# or
-python manage.py runserver 127.0.0.1:8000
+# Recommended: Docker for infra, Django on host (hot reload + pdb)
+make up          # starts postgres + redis + worker + beat
+make dev-host    # starts Django on host → http://localhost:8000
+# or directly:
+python manage.py runserver localhost:8000
 
 # Start on a different port
-python manage.py runserver 127.0.0.1:8001
+python manage.py runserver localhost:8001
 
-# Start Celery worker (separate terminal)
+# Start Celery worker (separate terminal, if not using make up)
 celery -A config.celery worker --loglevel=info
 
-# Start Celery beat scheduler (separate terminal)
+# Start Celery beat scheduler (separate terminal, if not using make up)
 celery -A config.celery beat --loglevel=info
 ```
 
 **Dev server URLs:**
-- API root: http://127.0.0.1:8000/api/v1/
-- Django Admin: http://127.0.0.1:8000/admin/
+- API root: http://localhost:8000/api/v1/
+- Django Admin: http://localhost:8000/admin/
+- Swagger UI: http://localhost:8000/api/schema/ui/
+- OpenAPI YAML: http://localhost:8000/api/schema/
 
 ---
 
@@ -189,8 +192,14 @@ make lint
 # Auto-fix lint issues
 ruff check . --fix
 
-# Full quality gate — fmt + lint + test (run before every PR)
+# Full quality gate — fmt + lint + type-check + deploy-check + test (run before every PR)
 make gate
+
+# Deploy check (OpenAPI schema warnings + Django security config)
+# Must return: "System check identified no issues (0 silenced)."
+SECRET_KEY="ci-check-only-not-real-do-not-use-in-production-x99z" \
+DATABASE_URL="postgresql://yali_app:ci@localhost:5432/ci" \
+python manage.py check --deploy --settings=config.settings.production --fail-level WARNING
 ```
 
 ---
@@ -207,6 +216,10 @@ make health-check
 # or
 curl -s http://localhost:8000/api/v1/health/ | python3 -m json.tool
 # Expected: {"status": "ok", "database": "ok", "cache": "ok"}
+
+# Check OpenAPI schema loads without warnings
+curl -s http://localhost:8000/api/schema/ | head -5
+# Expected: openapi: 3.0.3 ...
 ```
 
 ### Backup verification (3-tier)

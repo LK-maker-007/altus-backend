@@ -5,6 +5,7 @@ from typing import cast
 from uuid import UUID
 
 import structlog
+from drf_spectacular.utils import extend_schema
 from rest_framework.pagination import CursorPagination
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
@@ -42,6 +43,11 @@ class TicketListCreateView(APIView):
 
     permission_classes = _RESIDENT
 
+    @extend_schema(
+        responses={200: TicketReadSerializer(many=True)},
+        summary="List the resident's maintenance tickets",
+        tags=["maintenance"],
+    )
     def get(self, request: Request) -> Response:
         resident = cast(User, request.user)
         qs = (
@@ -65,6 +71,12 @@ class TicketListCreateView(APIView):
         serializer = TicketReadSerializer(page, many=True)
         return paginator.get_paginated_response(serializer.data)
 
+    @extend_schema(
+        request=TicketCreateSerializer,
+        responses={201: TicketReadSerializer},
+        summary="Submit a new maintenance ticket (multipart/form-data)",
+        tags=["maintenance"],
+    )
     def post(self, request: Request) -> Response:
         resident = cast(User, request.user)
         serializer = TicketCreateSerializer(data=request.data)
@@ -93,6 +105,11 @@ class TicketDetailView(APIView):
 
     permission_classes = _RESIDENT
 
+    @extend_schema(
+        responses={200: TicketDetailSerializer},
+        summary="Get maintenance ticket detail with status history",
+        tags=["maintenance"],
+    )
     def get(self, request: Request, ticket_id: UUID) -> Response:
         resident = cast(User, request.user)
         ticket = MaintenanceService.get_ticket_detail(

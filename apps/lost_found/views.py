@@ -14,6 +14,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import cast
 
+from drf_spectacular.utils import extend_schema
 from rest_framework.pagination import CursorPagination
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
@@ -47,6 +48,11 @@ class LostFoundListCreateView(APIView):
 
     permission_classes = _AUTH
 
+    @extend_schema(
+        responses={200: LostFoundReportSerializer(many=True)},
+        summary="List lost & found reports for the complex",
+        tags=["lost-found"],
+    )
     def get(self, request: Request) -> Response:
         user = cast(User, request.user)
         report_type = request.query_params.get("type")
@@ -61,6 +67,12 @@ class LostFoundListCreateView(APIView):
         serializer = LostFoundReportSerializer(page, many=True)
         return paginator.get_paginated_response(serializer.data)
 
+    @extend_schema(
+        request=LostFoundReportSerializer,
+        responses={201: LostFoundReportSerializer},
+        summary="Create a lost or found report",
+        tags=["lost-found"],
+    )
     def post(self, request: Request) -> Response:
         user = cast(User, request.user)
         serializer = LostFoundReportSerializer(data=request.data)

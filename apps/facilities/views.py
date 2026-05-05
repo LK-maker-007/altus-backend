@@ -10,6 +10,7 @@ from typing import cast
 import structlog
 from django.core.cache import cache
 from django.http import StreamingHttpResponse
+from drf_spectacular.utils import extend_schema
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import BasePermission, IsAuthenticated
@@ -69,6 +70,11 @@ class FacilityListView(APIView):
 
     permission_classes = _RESIDENT_OR_ADMIN
 
+    @extend_schema(
+        responses={200: FacilityReadSerializer(many=True)},
+        summary="List active facilities for the resident's complex",
+        tags=["facilities"],
+    )
     def get(self, request: Request) -> Response:
         qs = Facility.objects.filter(is_active=True).order_by("category", "name")
         category = request.query_params.get("category")
@@ -82,6 +88,11 @@ class FacilityDetailView(APIView):
 
     permission_classes = _RESIDENT_OR_ADMIN
 
+    @extend_schema(
+        responses={200: FacilityReadSerializer},
+        summary="Get a single facility detail",
+        tags=["facilities"],
+    )
     def get(self, request: Request, facility_id: str) -> Response:
         try:
             facility = Facility.objects.get(id=facility_id, is_active=True)
@@ -97,6 +108,20 @@ class FacilitySlotsView(APIView):
 
     permission_classes = _RESIDENT_OR_ADMIN
 
+    @extend_schema(
+        responses={
+            200: {
+                "type": "object",
+                "properties": {
+                    "facility_id": {"type": "string"},
+                    "date": {"type": "string"},
+                    "slots": {"type": "array", "items": {"type": "object"}},
+                },
+            }
+        },
+        summary="Get computed slot grid for a facility date",
+        tags=["facilities"],
+    )
     def get(self, request: Request, facility_id: str) -> Response:
         target_date = _parse_and_validate_date(request.query_params.get("date", ""))
         try:
@@ -138,6 +163,17 @@ class SseTicketIssueView(APIView):
 
     permission_classes: Sequence[type[BasePermission]] = (IsAuthenticated,)
 
+    @extend_schema(
+        request=None,
+        responses={
+            201: {
+                "type": "object",
+                "properties": {"ticket": {"type": "string", "format": "uuid"}},
+            }
+        },
+        summary="Issue a single-use SSE auth ticket (60s TTL)",
+        tags=["facilities"],
+    )
     def post(self, request: Request) -> Response:
         user = cast(User, request.user)
         ticket = str(uuid.uuid4())
@@ -179,6 +215,10 @@ class FacilitySlotStreamView(APIView):
 
     permission_classes = _RESIDENT_OR_ADMIN
 
+    @extend_schema(
+        # SSE stream — returns StreamingHttpResponse, not JSON schema-able
+        exclude=True,
+    )
     def get(
         self, request: Request, facility_id: str
     ) -> StreamingHttpResponse | Response:

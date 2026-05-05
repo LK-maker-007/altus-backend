@@ -75,7 +75,7 @@ class DatabaseWrapper(pg_base.DatabaseWrapper):
                     == TransactionStatus.INERROR
                 ):
                     return cursor
-            except ImportError, AttributeError:
+            except (ImportError, AttributeError):
                 # Not psycopg3, or connection not yet established — proceed.
                 pass
             cursor.execute("SET LOCAL app.current_complex = %s", (complex_id,))

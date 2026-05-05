@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import cast
 
+from drf_spectacular.utils import extend_schema
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -31,6 +32,11 @@ class PackageListView(APIView):
 
     permission_classes = _RESIDENT
 
+    @extend_schema(
+        responses={200: PackageReadSerializer(many=True)},
+        summary="List packages for the resident's unit",
+        tags=["packages"],
+    )
     def get(self, request: Request) -> Response:
         from apps.packages.models import Package
 
@@ -59,6 +65,12 @@ class PackageLogView(APIView):
 
     permission_classes = _SECURITY
 
+    @extend_schema(
+        request=PackageLogSerializer,
+        responses={201: PackageLogResponseSerializer},
+        summary="Log an incoming package for a unit (security only)",
+        tags=["packages"],
+    )
     def post(self, request: Request) -> Response:
         guard = cast(User, request.user)
         serializer = PackageLogSerializer(data=request.data)
@@ -85,6 +97,21 @@ class PackageCollectView(APIView):
 
     permission_classes = _ANY_AUTH
 
+    @extend_schema(
+        request=None,
+        responses={
+            200: {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string"},
+                    "status": {"type": "string"},
+                    "collected_at": {"type": "string", "format": "date-time"},
+                },
+            }
+        },
+        summary="Mark a package as collected",
+        tags=["packages"],
+    )
     def post(self, request: Request, package_id: str) -> Response:
         collector = cast(User, request.user)
         package = PackageService.mark_collected(

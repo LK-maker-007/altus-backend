@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import environ
+import environ  # type: ignore[import-untyped]  # django-environ ships no py.typed or stubs
 
 from .base import *  # settings inheritance - star import intentional (see pyproject.toml per-file-ignores)
 

@@ -13,6 +13,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import cast
 
+from drf_spectacular.utils import extend_schema
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -34,6 +35,18 @@ class EmergencyContactListView(APIView):
 
     permission_classes = _AUTH
 
+    @extend_schema(
+        responses={
+            200: {
+                "type": "object",
+                "properties": {
+                    "results": {"type": "array", "items": {"type": "object"}}
+                },
+            }
+        },
+        summary="List active emergency contacts for the complex",
+        tags=["emergency"],
+    )
     def get(self, request: Request) -> Response:
         user = cast(User, request.user)
         complex_id = str(user.complex_id or "")

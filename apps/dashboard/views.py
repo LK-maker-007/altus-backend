@@ -4,6 +4,7 @@ from collections.abc import Sequence
 from typing import cast
 
 from django.utils import timezone
+from drf_spectacular.utils import extend_schema
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -33,6 +34,23 @@ class DashboardView(APIView):
 
     permission_classes = _RESIDENT
 
+    @extend_schema(
+        responses={
+            200: {
+                "type": "object",
+                "properties": {
+                    "upcoming_bookings": {"type": "array", "items": {"type": "object"}},
+                    "recent_announcements": {
+                        "type": "array",
+                        "items": {"type": "object"},
+                    },
+                    "open_ticket_count": {"type": "integer"},
+                },
+            }
+        },
+        summary="Resident home screen aggregation",
+        tags=["dashboard"],
+    )
     def get(self, request: Request) -> Response:
         resident = cast(User, request.user)
         now = timezone.now()

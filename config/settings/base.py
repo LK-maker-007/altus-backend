@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import django_stubs_ext
-import environ
+import environ  # type: ignore[import-untyped]  # django-environ ships no py.typed or stubs
 
 # WHY django_stubs_ext.monkeypatch():
 #   django-stubs README §Installation: "required as a production dependency when
@@ -73,7 +73,13 @@ THIRD_PARTY_APPS = [
 ]
 
 LOCAL_APPS = [
-    "apps.core",
+    # WHY "apps.core.CoreConfig" (not "apps.core"):
+    #   Django 6 auto-discovery only finds AppConfig subclasses from apps.py,
+    #   not from __init__.py. The full dotted path forces Django to use our
+    #   CoreConfig, which calls ready() → imports apps.core.openapi →
+    #   registers MiddlewareJWTAuthenticationScheme in drf-spectacular's
+    #   extension registry before any schema check or system check runs.
+    "apps.core.CoreConfig",
     "apps.users",
     "apps.facilities",
     "apps.bookings",
@@ -326,4 +332,32 @@ SPECTACULAR_SETTINGS = {
     # WHY DISABLE_ERRORS_AND_WARNINGS=False: expose schema warnings during
     # development so incomplete view annotations are caught early.
     "DISABLE_ERRORS_AND_WARNINGS": False,
+    # WHY ENUM_NAME_OVERRIDES:
+    #   Multiple models share field names "category" and "status" but carry
+    #   different TextChoices sets. spectacular's postprocess_schema_enums hook
+    #   (active by default) detects this as a naming collision and emits W001,
+    #   appending a hash-based suffix (e.g. "Status14bEnum") to disambiguate.
+    #   ENUM_NAME_OVERRIDES maps a stable, human-readable name to each
+    #   TextChoices class via its full import path. spectacular resolves the
+    #   import at schema-generation time and uses the key as the component name.
+    #   Source: drf-spectacular docs §FAQ "I get warnings regarding my Enum";
+    #           drf-spectacular.readthedocs.io/en/latest/faq.html (2026).
+    "ENUM_NAME_OVERRIDES": {
+        # --- "category" collisions (3 models, 3 distinct choice sets) ---
+        "FacilityCategoryEnum": "apps.facilities.models.FacilityCategory",
+        "TicketCategoryEnum": "apps.maintenance.models.TicketCategory",
+        "AnnouncementCategoryEnum": "apps.community.models.AnnouncementCategory",
+        # --- "status" collisions (5 models, 5 distinct choice sets) ---
+        "BookingStatusEnum": "apps.bookings.models.BookingStatus",
+        "VisitorStatusEnum": "apps.visitors.models.VisitorStatus",
+        "PackageStatusEnum": "apps.packages.models.PackageStatus",
+        "TicketStatusEnum": "apps.maintenance.models.TicketStatus",
+        "LostFoundStatusEnum": "apps.lost_found.models.LostFoundStatus",
+    },
 }
+# NOTE: No SILENCED_SYSTEM_CHECKS.
+# drf_spectacular.W001 (unknown authenticator) is resolved by
+# MiddlewareJWTAuthenticationScheme in apps/core/openapi.py.
+# drf-spectacular auto-discovers OpenApiAuthenticationExtension subclasses
+# from any module imported at startup — apps.core.openapi is loaded via
+# apps.core AppConfig.ready() (see apps/core/apps.py).

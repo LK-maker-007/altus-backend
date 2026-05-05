@@ -120,7 +120,7 @@ def expo_push_send(
                 details=ticket.get("details", {}),
                 message=ticket.get("message", ""),
             )
-    except ValueError, KeyError:
+    except (ValueError, KeyError):
         # WHY (ValueError, KeyError) not bare Exception:
         #   response.json() raises ValueError on malformed JSON body.
         #   dict[] raises KeyError (belt-and-suspenders for unexpected shapes).
@@ -199,7 +199,7 @@ def expo_push_send_batch(messages: list[PushMessage]) -> None:
         try:
             tickets: list[dict[str, object]] = response.json().get("data", [])
             _persist_notification_logs(batch, tickets, batch_idx)
-        except ValueError, KeyError:
+        except (ValueError, KeyError):
             logger.warning(
                 "expo_push_batch_response_parse_failed",
                 batch_idx=batch_idx,

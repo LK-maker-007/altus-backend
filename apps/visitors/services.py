@@ -112,30 +112,30 @@ class VisitorService:
         Does NOT mark as arrived — that is a separate explicit action (US-022).
         Returns the visitor with unit and registered_by pre-fetched to avoid N+1.
         """
+        # WHY no status=PENDING filter on the query:
+        #   The old code filtered status=PENDING before checking state, which meant
+        #   an ARRIVED visitor raised VisitorNotFoundError instead of
+        #   VisitorOTPUsedError.
+        #   The security guard would see "pass not found" instead of "already used" —
+        #   wrong exception, wrong UX, wrong domain signal.
+        #   We fetch by OTP + complex only, then check state in priority order:
+        #   ARRIVED → EXPIRED → valid. This correctly maps every terminal state to
+        #   the right exception.
+        #   Source: audit §MEDIUM §verify_otp wrong exception on ARRIVED OTP;
+        #           test_already_used_otp_raises_otp_used_error.
         try:
-            visitor = (
-                Visitor.unscoped.select_related("unit", "registered_by").filter(
-                    complex_id=complex_id, status=VisitorStatus.PENDING
-                )
-                # WHY status=PENDING filter:
-                #   The DB uniqueness constraint
-                #   (visitor_otp_unique_per_complex_pending) is a PARTIAL
-                #   index scoped to PENDING only. An ARRIVED visitor from
-                #   a previous visit can share an OTP code with a new
-                #   PENDING visitor — the constraint does not prevent it.
-                #   Without this filter, .get() would raise
-                #   MultipleObjectsReturned (unhandled → 500) if both rows
-                #   exist. Filtering to PENDING is correct by domain logic:
-                #   only a PENDING visitor is eligible for gate verification.
-                #   Source: audit §MEDIUM §verify_otp MultipleObjectsReturned;
-                #           migration 0002 §visitor_otp_unique_per_complex_pending.
-                .get(otp_code=otp_code)
+            visitor = Visitor.unscoped.select_related("unit", "registered_by").get(
+                complex_id=complex_id,
+                otp_code=otp_code,
             )
         except Visitor.DoesNotExist:
             raise VisitorNotFoundError() from None
+        except Visitor.MultipleObjectsReturned:
+            # Two PENDING passes with the same OTP in the same complex — the partial
+            # unique index (visitor_otp_unique_per_complex_pending) prevents this in
+            # normal operation. Surface it safely as NotFound rather than 500.
+            raise VisitorNotFoundError() from None
 
-        # Status is guaranteed PENDING by the filter above.
-        # These guards remain for defence-in-depth (concurrent mark_arrived race).
         if visitor.status == VisitorStatus.ARRIVED:
             raise VisitorOTPUsedError()
 

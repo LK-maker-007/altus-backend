@@ -58,7 +58,7 @@ ignore = ["S101"]
 # Management commands — seed_demo_data.py uses em-dashes in human-readable demo strings
 # (intentional typography), long description strings that cannot be shortened without
 # losing meaning, and _/sub_created pattern for get_or_create return values.
-"**/management/commands/*.py" = ["RUF001", "RUF002", "RUF003", "E501", "RUF059"]
+"**/management/commands/*.py" = ["RUF001", "RUF002", "RUF003", "E501"]
 
 [tool.mypy]
 python_version = "3.14"

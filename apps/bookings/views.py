@@ -6,6 +6,7 @@ from uuid import UUID
 
 import structlog
 from django.db import models
+from drf_spectacular.utils import extend_schema
 from rest_framework.pagination import CursorPagination
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
@@ -56,6 +57,12 @@ class BookingHoldView(APIView):
     permission_classes = _RESIDENT
     throttle_classes = _BOOKING_HOLD_THROTTLES
 
+    @extend_schema(
+        request=BookingHoldSerializer,
+        responses={201: BookingHoldResponseSerializer},
+        summary="Create a 5-minute facility booking hold",
+        tags=["bookings"],
+    )
     def post(self, request: Request) -> Response:
         serializer = BookingHoldSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -74,6 +81,12 @@ class BookingConfirmView(APIView):
 
     permission_classes = _RESIDENT
 
+    @extend_schema(
+        request=None,
+        responses={200: BookingHoldResponseSerializer},
+        summary="Convert a hold to a confirmed booking",
+        tags=["bookings"],
+    )
     def post(self, request: Request, booking_id: UUID) -> Response:
         booking = BookingService.confirm_hold(
             booking_id=booking_id,
@@ -89,6 +102,22 @@ class BookingCancelView(APIView):
 
     permission_classes = _AUTH
 
+    @extend_schema(
+        request=BookingCancelSerializer,
+        responses={
+            200: {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string"},
+                    "status": {"type": "string"},
+                    "cancelled_at": {"type": "string", "format": "date-time"},
+                    "cancellation_source": {"type": "string"},
+                },
+            }
+        },
+        summary="Cancel a hold or confirmed booking",
+        tags=["bookings"],
+    )
     def post(self, request: Request, booking_id: UUID) -> Response:
         serializer = BookingCancelSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -125,6 +154,11 @@ class BookingListView(APIView):
 
     permission_classes = _RESIDENT
 
+    @extend_schema(
+        responses={200: BookingReadSerializer(many=True)},
+        summary="List resident's bookings (cursor paginated)",
+        tags=["bookings"],
+    )
     def get(self, request: Request) -> Response:
         qs = _get_resident_bookings(cast(User, request.user))
         paginator = CursorPagination()
@@ -139,6 +173,11 @@ class BookingDetailView(APIView):
 
     permission_classes = _RESIDENT
 
+    @extend_schema(
+        responses={200: BookingReadSerializer},
+        summary="Get single booking detail",
+        tags=["bookings"],
+    )
     def get(self, request: Request, booking_id: UUID) -> Response:
         try:
             booking = Booking.objects.select_related("facility").get(

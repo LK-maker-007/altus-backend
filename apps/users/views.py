@@ -5,6 +5,7 @@ from typing import cast
 
 import structlog
 from django.contrib.auth.models import AnonymousUser
+from drf_spectacular.utils import extend_schema
 from rest_framework.permissions import AllowAny, BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -61,6 +62,12 @@ class ComplexSearchView(APIView):
 
     permission_classes = _PUBLIC
 
+    @extend_schema(
+        parameters=[ComplexSearchSerializer],
+        responses={200: UserReadSerializer(many=True)},
+        summary="Search apartment complexes",
+        tags=["auth"],
+    )
     def get(self, request: Request) -> Response:
         serializer = ComplexSearchSerializer(data=request.query_params)
         serializer.is_valid(raise_exception=True)
@@ -83,6 +90,20 @@ class RegisterView(APIView):
     # Source: Google Principal Architect review — "CRITICAL" §rate-limiting
     throttle_classes = _OTP_SEND_THROTTLES
 
+    @extend_schema(
+        request=RegisterSerializer,
+        responses={
+            200: {
+                "type": "object",
+                "properties": {
+                    "status": {"type": "string"},
+                    "expires_in_seconds": {"type": "integer"},
+                },
+            }
+        },
+        summary="Register: validate unit, send OTP",
+        tags=["auth"],
+    )
     def post(self, request: Request) -> Response:
         serializer = RegisterSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -140,6 +161,20 @@ class LoginView(APIView):
     # Same rationale as RegisterView — OTP send must be rate-limited by phone number.
     throttle_classes = _OTP_SEND_THROTTLES
 
+    @extend_schema(
+        request=LoginSerializer,
+        responses={
+            200: {
+                "type": "object",
+                "properties": {
+                    "status": {"type": "string"},
+                    "expires_in_seconds": {"type": "integer"},
+                },
+            }
+        },
+        summary="Login: send OTP to registered phone",
+        tags=["auth"],
+    )
     def post(self, request: Request) -> Response:
         serializer = LoginSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -165,6 +200,12 @@ class OTPVerifyView(APIView):
     # which enforces a 3-attempt / 15-minute lockout at the service layer.
     throttle_classes = _OTP_VERIFY_THROTTLES
 
+    @extend_schema(
+        request=OTPVerifySerializer,
+        responses={200: UserReadSerializer},
+        summary="Verify OTP — returns JWT token pair + user profile",
+        tags=["auth"],
+    )
     def post(self, request: Request) -> Response:
         serializer = OTPVerifySerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -198,6 +239,12 @@ class TokenRefreshView(APIView):
     # stops automated stuffing while allowing legitimate client retries.
     throttle_classes = _TOKEN_REFRESH_THROTTLES
 
+    @extend_schema(
+        request=TokenRefreshSerializer,
+        responses={200: TokenRefreshSerializer},
+        summary="Refresh access token using refresh token",
+        tags=["auth"],
+    )
     def post(self, request: Request) -> Response:
         serializer = TokenRefreshSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -212,6 +259,12 @@ class LogoutView(APIView):
 
     permission_classes = _AUTH
 
+    @extend_schema(
+        request=LogoutSerializer,
+        responses={204: None},
+        summary="Logout — revoke both JTIs in Redis",
+        tags=["auth"],
+    )
     def post(self, request: Request) -> Response:
         serializer = LogoutSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -236,6 +289,11 @@ class MeView(APIView):
 
     permission_classes = _AUTH
 
+    @extend_schema(
+        responses={200: UserReadSerializer},
+        summary="Get current user profile",
+        tags=["auth"],
+    )
     def get(self, request: Request) -> Response:
         user = _require_user(request)
         # WHY re-fetch with select_related("unit"):
@@ -247,6 +305,12 @@ class MeView(APIView):
         user_with_unit = User.objects.select_related("unit").get(pk=user.pk)
         return Response(UserReadSerializer(user_with_unit).data)
 
+    @extend_schema(
+        request=ProfileUpdateSerializer,
+        responses={200: UserReadSerializer},
+        summary="Update push token, name, or vehicle registrations",
+        tags=["auth"],
+    )
     def patch(self, request: Request) -> Response:
         serializer = ProfileUpdateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)

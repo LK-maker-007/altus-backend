@@ -119,6 +119,10 @@ class TestDLQSignalHandler:
         """Signal handler writes a FailedTask row when retries >= max_retries."""
         from celery.signals import task_failure
 
+        from config.celery import _setup_task_failure_handler
+
+        _setup_task_failure_handler(sender=None)
+
         class _TerminalSender:
             """Simulates a task that has exhausted all retries."""
 
