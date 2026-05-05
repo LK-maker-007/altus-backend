@@ -40,7 +40,7 @@ LOGGING = {
 #
 # WHY not in base.py:
 #   django_migration_linter must NOT be in production INSTALLED_APPS.
-INSTALLED_APPS += ["django_migration_linter"]  # noqa: F821
+INSTALLED_APPS += ["django_migration_linter"]
 MIGRATION_LINTER_OVERRIDE_MAKEMIGRATIONS = True
 MIGRATION_LINTER_OPTIONS = {
     "exclude_apps": ["django_celery_beat"],
