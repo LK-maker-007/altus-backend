@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import django_stubs_ext
-import environ  # type: ignore[import-untyped]  # django-environ ships no py.typed or stubs
+import environ  # django-environ 0.11.2 ships py.typed — no ignore needed
 
 # WHY django_stubs_ext.monkeypatch():
 #   django-stubs README §Installation: "required as a production dependency when

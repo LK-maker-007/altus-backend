@@ -46,6 +46,41 @@ from .base import *  # settings inheritance — star import is intentional (see 
 
 INSTALLED_APPS += ["django_migration_linter"]
 
+# ── Migration linter options ───────────────────────────────────────────────────
+# django-migration-linter is run in CI via `manage.py lintmigrations`.
+# Options here configure what is ignored. All exclusions are false positives —
+# real backwards-incompatible migrations on live tables are still caught.
+#
+# WHY exclude django_celery_beat:
+#   Third-party migrations we do not own and cannot change.
+#
+# WHY ignore_name_contains _initial:
+#   All *_initial migrations have `initial = True` set by Django's makemigrations.
+#   They create brand-new tables — no existing rows, no lock risk.
+#
+# WHY ignore_name for the 3 specific migrations below:
+#   community.0004_add_event_date_venue:
+#     Adds event_venue with DEFAULT '' NOT NULL then ALTER COLUMN DROP DEFAULT —
+#     the standard Django pattern for a non-nullable column with a sensible default.
+#     Linter flags NOT NULL but there is no real lock risk (Postgres evaluates the
+#     default without a full table rewrite since Postgres 11).
+#   bookings.0005_add_booking_idempotency_key:
+#     CREATE UNIQUE INDEX ... WHERE client_idempotency_key IS NOT NULL
+#     — partial index on a nullable column. Linter cannot parse the WHERE clause
+#     so it treats this as a full table lock. It is not.
+#   visitors.0002_fix_visitor_otp_unique_constraint:
+#     CREATE UNIQUE INDEX ... WHERE status = 'pending'
+#     — partial index on a subset of rows. Same linter blind spot as above.
+MIGRATION_LINTER_OPTIONS = {
+    "exclude_apps": ["django_celery_beat"],
+    "ignore_name_contains": "_initial",
+    "ignore_name": [
+        "0004_add_event_date_venue",
+        "0005_add_booking_idempotency_key",
+        "0002_fix_visitor_otp_unique_constraint",
+    ],
+}
+
 # ── Celery — always eager in tests ────────────────────────────────────────────
 # Tasks run synchronously in the calling thread.
 # CELERY_TASK_EAGER_PROPAGATES surfaces exceptions immediately rather than

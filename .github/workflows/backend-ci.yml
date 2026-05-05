@@ -138,7 +138,10 @@ jobs:
         #   - Dropping column while code still references it (rolling deploy crash)
         #   - Unique constraint on existing data without deferral
         # Source: github.com/3YOURMIND/django-migration-linter (2025-Q4 active)
-        # Cookiecutter-Django recommends this in CI since 2024.
+        #
+        # Exclusion config (false positives, third-party migrations) lives in
+        # MIGRATION_LINTER_OPTIONS in config/settings/test.py — not here.
+        # That keeps CI concise and exclusion rationale co-located with the setting.
         run: |
           pip install django-migration-linter --quiet
           python manage.py lintmigrations \
