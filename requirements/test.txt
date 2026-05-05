@@ -70,3 +70,21 @@ sentry-sdk[django]==2.19.2
 # Must be present in test environment or pytest collection fails with ModuleNotFoundError.
 # Pinned to match requirements/production.txt.
 drf-spectacular==0.27.2
+
+# ── Migration safety ──────────────────────────────────────────────────────────
+# WHY django-migration-linter in test requirements (not a runtime pip install in CI):
+#   All dependencies must be pinned and reproducible. Installing via `pip install`
+#   at CI runtime is non-deterministic — a new release could break CI silently.
+#   Pinned here so the CI test job installs the same version every run.
+#
+# Version 6.0.0 (released 2026-01-04):
+#   - First version to support Django 6.0 (classifiers verified on PyPI 2026-05-05)
+#   - Production/Stable (Development Status :: 5 - Production/Stable)
+#   Source: https://pypi.org/project/django-migration-linter/6.0.0/
+#
+# NOTE on django-pg-zero-downtime-migrations:
+#   v0.19 (2025-06-06) only classifies support up to Django 5.2.
+#   This project runs Django 6.0.4. Not safe to install on 6.0 without a verified
+#   Django 6.0-compatible release. Re-evaluate when published.
+#   Track: https://github.com/tbicr/django-pg-zero-downtime-migrations/issues
+django-migration-linter==6.0.0

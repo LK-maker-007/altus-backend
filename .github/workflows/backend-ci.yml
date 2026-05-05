@@ -143,7 +143,6 @@ jobs:
         # MIGRATION_LINTER_OPTIONS in config/settings/test.py — not here.
         # That keeps CI concise and exclusion rationale co-located with the setting.
         run: |
-          pip install django-migration-linter --quiet
           python manage.py lintmigrations \
             --settings=config.settings.test \
             --warnings-as-errors \

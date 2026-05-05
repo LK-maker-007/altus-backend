@@ -42,3 +42,11 @@ celery-types==0.23.0
 # type: ignore[attr-defined] in maintenance/services.py _get_r2_client().
 # The [s3] extra installs mypy_boto3_s3 which provides the S3Client overload.
 boto3-stubs[s3]==1.35.81
+
+# ── Migration safety ──────────────────────────────────────────────────────────
+# WHY django-migration-linter in development requirements:
+#   MIGRATION_LINTER_OVERRIDE_MAKEMIGRATIONS = True (set in development.py) hooks
+#   the linter into `makemigrations` — dangerous migrations are caught at creation
+#   time locally, before they ever reach CI. Elite practice: shift-left on safety.
+#   Version 6.0.0 — first release supporting Django 6.0. Source: PyPI 2026-05-05.
+django-migration-linter==6.0.0
