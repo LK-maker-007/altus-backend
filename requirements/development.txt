@@ -1,7 +1,7 @@
 -r production.txt
 
 # Dev / test
-pytest==8.3.4
+pytest==9.0.3
 pytest-django==4.9.0
 pytest-cov==6.0.0
 pytest-xdist==3.6.1          # parallel test execution (-n auto)
@@ -11,7 +11,7 @@ freezegun==1.5.1              # freeze datetime.now() for hold expiry tests
 responses==0.25.3             # mock Twilio Verify HTTP calls
 pytest-mock==3.14.0           # mocker fixture — cleaner than unittest.mock directly in pytest
 
-black==24.10.0
+black==26.3.1
 ruff==0.8.6
 
 # ── Type checking ──────────────────────────────────────────────────────────────
