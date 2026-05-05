@@ -201,7 +201,7 @@ jobs:
         run: |
           pip install pip-audit --quiet
           pip-audit \
-            --requirement yali-backend/requirements/production.txt \
+            --requirement requirements/production.txt \
             --skip-editable \
             --format columns
 
@@ -303,7 +303,7 @@ jobs:
         # SHA-pinned. Tag @v4 = commit b9fd7d16f6d7d1b5d2bec1a2887e65ceed900238
         uses: codecov/codecov-action@b9fd7d16f6d7d1b5d2bec1a2887e65ceed900238 # v4
         with:
-          file: yali-backend/coverage.xml
+          file: coverage.xml
           fail_ci_if_error: false  # Coverage upload failure does not block merge
 
   # ── Stage 3: k6 Smoke Test ─────────────────────────────────────────────────
