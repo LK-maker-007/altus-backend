@@ -1,0 +1,44 @@
+-r production.txt
+
+# Dev / test
+pytest==8.3.4
+pytest-django==4.9.0
+pytest-cov==6.0.0
+pytest-xdist==3.6.1          # parallel test execution (-n auto)
+pytest-randomly==3.15.0       # randomize test order — catches hidden dependencies
+factory-boy==3.3.1
+freezegun==1.5.1              # freeze datetime.now() for hold expiry tests
+responses==0.25.3             # mock Twilio Verify HTTP calls
+pytest-mock==3.14.0           # mocker fixture — cleaner than unittest.mock directly in pytest
+
+black==24.10.0
+ruff==0.8.6
+
+# ── Type checking ──────────────────────────────────────────────────────────────
+# WHY these exact versions:
+#   django-stubs and mypy are tightly coupled — they use internal mypy APIs that
+#   change between releases. The django-stubs compatibility matrix (README.md)
+#   lists which mypy versions each django-stubs release supports.
+#
+#   django-stubs 6.0.x → compatible with mypy 1.13–1.20 (official matrix).
+#   djangorestframework-stubs 3.16.x → compatible with django-stubs 6.0.x.
+#
+#   CRITICAL: After any upgrade to mypy or django-stubs, you MUST delete
+#   .mypy_cache/ before the next run. A cache built by an older mypy version
+#   causes "INTERNAL ERROR — Error constructing plugin instance of
+#   NewSemanalDjangoPlugin" because mypy 1.20 cannot deserialize 1.14 cache
+#   files. This is the documented root cause of the intermittent crash.
+#   Fix: `rm -rf .mypy_cache && mypy ...`
+#
+#   Source: github.com/typeddjango/django-stubs — Version compatibility section.
+mypy==1.20.2
+django-stubs==6.0.3
+djangorestframework-stubs==3.16.9
+mypy-extensions==1.0.0
+# celery-types: type stubs for @shared_task — eliminates type: ignore[untyped-decorator]
+# on all 5 task files. Zero runtime footprint (TYPE_CHECKING only).
+celery-types==0.23.0
+# boto3-stubs[s3]: type stubs for S3Client.upload_fileobj — eliminates
+# type: ignore[attr-defined] in maintenance/services.py _get_r2_client().
+# The [s3] extra installs mypy_boto3_s3 which provides the S3Client overload.
+boto3-stubs[s3]==1.35.81

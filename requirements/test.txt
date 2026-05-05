@@ -1,0 +1,72 @@
+# requirements/test.txt
+#
+# Test-only dependencies for CI test job.
+# Intentionally flat — does NOT use `-r production.txt`.
+#
+# Rationale: CI runs two separate jobs:
+#   1. lint  → installs requirements/development.txt (has black, ruff, mypy)
+#   2. test  → installs THIS file (no lint tools — keeps test job lean)
+#
+# All pinned versions match requirements/development.txt exactly.
+# If a version is bumped in development.txt, bump it here too.
+#
+# See: docs/local-dev-setup.md §8 — requirements/test.txt rationale.
+# See: .github/workflows/backend-ci.yml — which job uses this file.
+
+# ── Test runner ───────────────────────────────────────────────────────────────
+pytest==8.3.4
+pytest-django==4.9.0
+pytest-cov==6.0.0
+pytest-xdist==3.6.1           # parallel test execution (-n auto)
+pytest-randomly==3.15.0        # randomize test order — catches hidden dependencies
+
+# ── Test utilities ────────────────────────────────────────────────────────────
+factory-boy==3.3.1             # model factories — never hardcode test data
+freezegun==1.5.1               # freeze datetime.now() for hold expiry tests
+responses==0.25.3              # mock Twilio Verify HTTP calls
+pytest-mock==3.14.0            # mocker fixture — cleaner patch/spy than unittest.mock directly
+hypothesis[django]==6.130.8    # property-based testing — slot overlap, OTP, auth edge cases
+mutmut==2.5.1                  # mutation testing — validates test effectiveness on critical paths
+                               # run selectively: `mutmut run --paths-to-mutate=apps/bookings/services.py`
+
+# ── Django + all app dependencies ─────────────────────────────────────────────
+# pytest-django imports Django at collection time. All packages imported by
+# the application code must be installed or collection fails with ImportError.
+Django==6.0.4
+djangorestframework==3.17.1
+django-cors-headers==4.6.0
+django-environ==0.11.2
+django-filter==24.3
+psycopg[binary]==3.3.3
+
+# Auth
+PyJWT==2.9.0
+
+# Async tasks
+celery==5.6.3
+redis==5.2.1
+django-celery-beat==2.9.0      # minimum version supporting Django 6.0 (removes Django<5.2 upper bound)
+django-celery-results==2.6.0
+
+# Storage
+boto3==1.35.81
+
+# HTTP client
+httpx==0.28.1
+
+# Logging
+structlog==25.5.0
+
+# OTP / SMS
+twilio==9.3.7
+
+# File validation
+python-magic==0.4.27
+
+# Observability
+sentry-sdk[django]==2.19.2
+
+# API schema — drf-spectacular imported by config/urls.py at app startup.
+# Must be present in test environment or pytest collection fails with ModuleNotFoundError.
+# Pinned to match requirements/production.txt.
+drf-spectacular==0.27.2

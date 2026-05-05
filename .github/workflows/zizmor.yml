@@ -1,0 +1,60 @@
+name: Security scan (zizmor)
+
+# Scans GitHub Actions workflow files for security vulnerabilities:
+# - Expression injection (untrusted ${{ github.event.* }} in run: steps)
+# - Excessive permissions
+# - Missing persist-credentials: false
+# - Script injection via pull_request_target misuse
+#
+# Source: https://github.com/zizmor-dev/zizmor
+# Used by: astral-sh/uv CI (.github/workflows/check-zizmor.yml)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/**"
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/**"
+
+permissions:
+  contents: read
+  security-events: write  # Required to upload SARIF results to GitHub Security tab
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  zizmor:
+    name: Workflow security scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - name: Install zizmor
+        # zizmor is a static analysis tool for GitHub Actions workflow YAML.
+        # It catches injection bugs before they reach production.
+        run: |
+          pip install zizmor
+
+      - name: Run zizmor
+        # --format sarif: outputs GitHub-compatible security report
+        # Results appear in Security → Code Scanning on GitHub.
+        # --no-exit-code: report findings without failing the job
+        #   (change to exit-code if you want hard failure on any finding)
+        run: |
+          zizmor --format sarif .github/workflows/ > zizmor.sarif || true
+
+      - name: Upload SARIF to GitHub Security tab
+        # SHA-pinned. Tag v3 = commit f779452ac5f3b9ef2c4e85a1e82ed6b6b809e6e5 (verified 2026-04-25)
+        uses: github/codeql-action/upload-sarif@f779452ac5f3b9ef2c4e85a1e82ed6b6b809e6e5 # v3
+        with:
+          sarif_file: zizmor.sarif
+          category: zizmor

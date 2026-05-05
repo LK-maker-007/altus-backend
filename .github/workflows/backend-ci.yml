@@ -1,0 +1,465 @@
+name: Backend CI
+
+# ── Trigger ──────────────────────────────────────────────────────────────────
+# Runs on every PR to main and on every push to main.
+# Three sequential stages — each blocks the next:
+#   Stage 1: Code Quality   (fmt + lint + type-check + deploy-check + migration-lint + pip-audit)
+#   Stage 2: Test Suite     (postgres + redis service, pytest --cov ≥ 80%)
+#   Stage 3: k6 Smoke Test  (spin up Django, run 5-VU/20s k6 smoke, enforce SLOs)
+#
+# MAANG principle: "written ≠ proven."
+# This file is the enforcement mechanism — make gate is for developer feedback,
+# GitHub Actions is the mandatory gate that cannot be skipped.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# ── Concurrency ───────────────────────────────────────────────────────────────
+# Cancel in-progress runs when a new commit is pushed to the same ref.
+# Prevents wasted runner minutes and eliminates race conditions between
+# parallel runs that share the same database services.
+# Source: django/django, astral-sh/uv (industry standard pattern)
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# ── Permissions ───────────────────────────────────────────────────────────────
+# Explicit least-privilege. GitHub Actions' default GITHUB_TOKEN has write
+# access to everything. A compromised action (supply-chain attack) can exfiltrate
+# secrets, push code, or create releases if permissions are unrestricted.
+# Each job inherits this default; the codecov job overrides to add id-token.
+# Source: PSF/black, GitHub security hardening documentation (2026)
+permissions:
+  contents: read
+
+jobs:
+  # ── Stage 1: Code Quality ──────────────────────────────────────────────────
+  quality:
+    name: Code Quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 15  # Hanging lint should not burn 6h of runner minutes
+
+    steps:
+      # SHA-pinned to prevent supply-chain attacks via mutable tag rewrites.
+      # Tag @v4 = commit 34e114876b0b11c390a56381ad16ebd13914f8d5 (verified 2026-04-25)
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          # Do not persist the GITHUB_TOKEN credential to git's credential store.
+          # Prevents any subsequent step from silently having write access.
+          persist-credentials: false
+
+      # SHA-pinned. Tag @v5 = commit a26af69be951a213d495a4c3e4e4022e16d87065
+      - name: Set up Python 3.14
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.14"
+          cache: "pip"
+          cache-dependency-path: yali-backend/requirements/development.txt
+
+      - name: Install dependencies
+        run: |
+          cd yali-backend
+          pip install -r requirements/development.txt
+
+      - name: Black formatting check
+        run: |
+          cd yali-backend
+          black --check .
+
+      - name: Ruff lint check
+        run: |
+          cd yali-backend
+          ruff check .
+
+      - name: Mypy strict type check
+        run: |
+          cd yali-backend
+          python -m mypy apps/ config/ manage.py --ignore-missing-imports
+
+      - name: Verify DEBUG=False in production settings
+        # Boots Django with production settings and asserts DEBUG is False.
+        # Catches accidental DEBUG=True commits before they reach production.
+        run: |
+          cd yali-backend
+          python -c "
+          import os
+          os.environ['DJANGO_SETTINGS_MODULE'] = 'config.settings.production'
+          os.environ['SECRET_KEY'] = 'ci-check-only-not-real-do-not-use'
+          os.environ['DATABASE_URL'] = 'postgresql://yali_app:ci@localhost:5432/ci'
+          os.environ['REDIS_URL'] = 'redis://localhost:6379/0'
+          os.environ['ALLOWED_HOSTS'] = 'localhost'
+          os.environ['JWT_SECRET_KEY'] = 'ci-check-jwt-secret'
+          os.environ['QR_TOKEN_SECRET'] = 'ci-check-qr-secret'
+          os.environ['TWILIO_ACCOUNT_SID'] = 'ACci'
+          os.environ['TWILIO_AUTH_TOKEN'] = 'ci'
+          os.environ['TWILIO_VERIFY_SERVICE_SID'] = 'VAci'
+          os.environ['TWILIO_PHONE_NUMBER'] = '+10000000000'
+          os.environ['R2_ACCOUNT_ID'] = 'ci'
+          os.environ['R2_ACCESS_KEY_ID'] = 'ci'
+          os.environ['R2_SECRET_ACCESS_KEY'] = 'ci'
+          os.environ['R2_ENDPOINT_URL'] = 'https://ci.r2.cloudflarestorage.com'
+          os.environ['R2_PUBLIC_URL'] = 'https://media.ci.yali.app'
+          import django; django.setup()
+          from django.conf import settings
+          assert not settings.DEBUG, 'DEBUG must be False in production settings'
+          print('DEBUG=False verified')
+          "
+
+      - name: Django deploy check
+        # WHY: Catches production misconfigurations that pass unit tests but fail
+        # in production. Checks DEBUG, ALLOWED_HOSTS, HSTS, secure cookies,
+        # SECRET_KEY strength, SECURE_PROXY_SSL_HEADER, and more.
+        # Cookiecutter-Django, Sentry both run this. We were missing it.
+        # Source: Django 6.0 docs — manage.py check --deploy
+        run: |
+          cd yali-backend
+          python manage.py check --deploy \
+            --settings=config.settings.production \
+            --fail-level WARNING
+        env:
+          SECRET_KEY: ci-check-only-not-real-do-not-use-in-production-x99z
+          DATABASE_URL: postgresql://yali_app:ci@localhost:5432/ci
+          REDIS_URL: redis://localhost:6379/0
+          ALLOWED_HOSTS: api.yali.app
+          JWT_SECRET_KEY: ci-check-jwt-secret-64-chars-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+          QR_TOKEN_SECRET: ci-check-qr-secret-64-chars-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+          TWILIO_ACCOUNT_SID: ACci
+          TWILIO_AUTH_TOKEN: ci
+          TWILIO_VERIFY_SERVICE_SID: VAci
+          TWILIO_PHONE_NUMBER: "+10000000000"
+          R2_ACCOUNT_ID: ci
+          R2_ACCESS_KEY_ID: ci
+          R2_SECRET_ACCESS_KEY: ci
+          R2_ENDPOINT_URL: https://ci.r2.cloudflarestorage.com
+          R2_PUBLIC_URL: https://media.ci.yali.app
+
+      - name: Migration linter
+        # WHY: Detects backwards-incompatible migrations before they merge.
+        # Examples of blocked operations:
+        #   - Adding NOT NULL column without default (table lock on large tables)
+        #   - Dropping column while code still references it (rolling deploy crash)
+        #   - Unique constraint on existing data without deferral
+        # Source: github.com/3YOURMIND/django-migration-linter (2025-Q4 active)
+        # Cookiecutter-Django recommends this in CI since 2024.
+        run: |
+          cd yali-backend
+          pip install django-migration-linter --quiet
+          python -m django_migration_linter \
+            --settings=config.settings.test \
+            --warnings-as-errors
+        env:
+          DATABASE_URL: postgresql://yali_app:ci@localhost:5432/ci
+          REDIS_URL: redis://localhost:6379/0
+          SECRET_KEY: ci-lint-only
+          JWT_SECRET_KEY: ci-lint-only
+          QR_TOKEN_SECRET: ci-lint-only
+          TWILIO_ACCOUNT_SID: ACci
+          TWILIO_AUTH_TOKEN: ci
+          TWILIO_VERIFY_SERVICE_SID: VAci
+          TWILIO_PHONE_NUMBER: "+10000000000"
+          R2_ACCOUNT_ID: ci
+          R2_ACCESS_KEY_ID: ci
+          R2_SECRET_ACCESS_KEY: ci
+          R2_ENDPOINT_URL: https://ci.r2.cloudflarestorage.com
+          R2_PUBLIC_URL: https://media.ci.yali.app
+
+      - name: Dependency security audit
+        # WHY: Scans requirements/production.txt for packages with known CVEs.
+        # Django, DRF, boto3, PyJWT all release security patches regularly.
+        # Google-maintained pip-audit uses the OSV vulnerability database.
+        # Source: pypi.org/project/pip-audit (Google, 2025 stable release)
+        # Pattern: Sentry, cookiecutter-django, mozilla/kitsune all run this.
+        run: |
+          pip install pip-audit --quiet
+          pip-audit \
+            --requirement yali-backend/requirements/production.txt \
+            --skip-editable \
+            --format columns
+
+  # ── Stage 2: Test Suite ────────────────────────────────────────────────────
+  test:
+    name: Test Suite
+    runs-on: ubuntu-latest
+    needs: quality  # Only run if quality stage passes
+    timeout-minutes: 30  # Full suite + coverage should never exceed 30m
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: yali_app
+          POSTGRES_PASSWORD: ci_password
+          POSTGRES_DB: yali_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+        ports:
+          - 5432:5432
+
+      redis:
+        image: redis:7.4-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+        ports:
+          - 6379:6379
+
+    env:
+      DJANGO_SETTINGS_MODULE: config.settings.test
+      DATABASE_URL: postgresql://yali_app:ci_password@localhost:5432/yali_test
+      REDIS_URL: redis://localhost:6379/1
+      SECRET_KEY: ci-test-secret-key-not-for-production
+      JWT_SECRET_KEY: ci-test-jwt-secret-not-for-production
+      QR_TOKEN_SECRET: ci-test-qr-secret-not-for-production
+      TWILIO_ACCOUNT_SID: ACci
+      TWILIO_AUTH_TOKEN: ci
+      TWILIO_VERIFY_SERVICE_SID: VAci
+      TWILIO_PHONE_NUMBER: "+10000000000"
+      R2_ACCOUNT_ID: ci
+      R2_ACCESS_KEY_ID: ci
+      R2_SECRET_ACCESS_KEY: ci
+      R2_ENDPOINT_URL: https://ci.r2.cloudflarestorage.com
+      R2_PUBLIC_URL: https://media.ci.yali.app
+      SMS_PROVIDER: mock
+
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.14
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.14"
+          cache: "pip"
+          cache-dependency-path: yali-backend/requirements/development.txt
+
+      - name: Install system dependencies
+        # libmagic1 is required by python-magic for MIME type validation
+        run: sudo apt-get install -y libmagic1
+
+      - name: Install Python dependencies
+        run: |
+          cd yali-backend
+          pip install -r requirements/development.txt
+
+      - name: Enable btree_gist extension
+        # Required for the GiST exclusion constraint on the Booking table.
+        # Must run BEFORE migrate — the migration creates the constraint.
+        run: |
+          PGPASSWORD=ci_password psql \
+            -h localhost -U yali_app -d yali_test \
+            -c "CREATE EXTENSION IF NOT EXISTS btree_gist;"
+
+      - name: Apply migrations
+        run: |
+          cd yali-backend
+          python manage.py migrate --noinput
+
+      - name: Run test suite with coverage
+        # -x: fail fast on first failure
+        # --cov-fail-under=80: CI fails if global coverage drops below 80%
+        run: |
+          cd yali-backend
+          pytest \
+            --cov=apps \
+            --cov-report=xml \
+            --cov-report=term-missing \
+            --cov-fail-under=80 \
+            -x \
+            -v
+
+      - name: Upload coverage to Codecov
+        # SHA-pinned. Tag @v4 = commit b9fd7d16f6d7d1b5d2bec1a2887e65ceed900238
+        uses: codecov/codecov-action@b9fd7d16f6d7d1b5d2bec1a2887e65ceed900238 # v4
+        with:
+          file: yali-backend/coverage.xml
+          fail_ci_if_error: false  # Coverage upload failure does not block merge
+
+  # ── Stage 3: k6 Smoke Test ─────────────────────────────────────────────────
+  smoke:
+    name: k6 Smoke Test
+    runs-on: ubuntu-latest
+    needs: test  # Only run if the full test suite passes
+    timeout-minutes: 15  # 20s k6 run + Django boot should never exceed 15m
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: yali_app
+          POSTGRES_PASSWORD: ci_password
+          POSTGRES_DB: yali_smoke
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+        ports:
+          - 5432:5432
+
+      redis:
+        image: redis:7.4-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+        ports:
+          - 6379:6379
+
+    env:
+      # Django runs in "test-like" mode but with a real HTTP server for k6.
+      # SMS_PROVIDER=mock → OTP code 000000 always succeeds.
+      DJANGO_SETTINGS_MODULE: config.settings.test
+      DATABASE_URL: postgresql://yali_app:ci_password@localhost:5432/yali_smoke
+      REDIS_URL: redis://localhost:6379/2
+      SECRET_KEY: ci-smoke-secret-key-not-for-production
+      JWT_SECRET_KEY: ci-smoke-jwt-secret-not-for-production
+      QR_TOKEN_SECRET: ci-smoke-qr-secret-not-for-production
+      TWILIO_ACCOUNT_SID: ACci
+      TWILIO_AUTH_TOKEN: ci
+      TWILIO_VERIFY_SERVICE_SID: VAci
+      TWILIO_PHONE_NUMBER: "+10000000000"
+      R2_ACCOUNT_ID: ci
+      R2_ACCESS_KEY_ID: ci
+      R2_SECRET_ACCESS_KEY: ci
+      R2_ENDPOINT_URL: https://ci.r2.cloudflarestorage.com
+      R2_PUBLIC_URL: https://media.ci.yali.app
+      SMS_PROVIDER: mock
+      K6_BASE_URL: http://localhost:8000
+      K6_TEST_PHONE: "+919000099999"
+
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.14
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.14"
+          cache: "pip"
+          cache-dependency-path: yali-backend/requirements/development.txt
+
+      - name: Install system dependencies
+        run: sudo apt-get install -y libmagic1
+
+      - name: Install Python dependencies
+        run: |
+          cd yali-backend
+          pip install -r requirements/development.txt
+
+      - name: Install k6
+        # Official Grafana k6 installation for Linux (Debian/Ubuntu).
+        # Source: https://grafana.com/docs/k6/latest/set-up/install-k6/
+        run: |
+          sudo gpg -k
+          sudo gpg --no-default-keyring \
+            --keyring /usr/share/keyrings/k6-archive-keyring.gpg \
+            --keyserver hkp://keyserver.ubuntu.com:80 \
+            --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
+          echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] \
+            https://dl.k6.io/deb stable main" \
+            | sudo tee /etc/apt/sources.list.d/k6.list
+          sudo apt-get update
+          sudo apt-get install -y k6
+
+      - name: Enable btree_gist extension
+        run: |
+          PGPASSWORD=ci_password psql \
+            -h localhost -U yali_app -d yali_smoke \
+            -c "CREATE EXTENSION IF NOT EXISTS btree_gist;"
+
+      - name: Apply migrations
+        run: |
+          cd yali-backend
+          python manage.py migrate --noinput
+
+      - name: Create k6 load test user
+        # Creates the deterministic user (+919000099999) that k6's setup()
+        # authenticate() flow uses. Idempotent — safe to run multiple times.
+        run: |
+          cd yali-backend
+          python manage.py create_load_test_user
+
+      - name: Start Django server
+        run: |
+          cd yali-backend
+          python manage.py runserver 0.0.0.0:8000 &
+          echo "DJANGO_PID=$!" >> $GITHUB_ENV
+
+      - name: Wait for Django to be ready
+        # Polls /api/v1/health/ with 1s intervals, max 15 attempts.
+        # Fails fast rather than hanging for GitHub's 6h default timeout.
+        run: |
+          echo "Waiting for Django to start on port 8000..."
+          for i in $(seq 1 15); do
+            if curl -sf http://localhost:8000/api/v1/health/ > /dev/null 2>&1; then
+              echo "Django is ready (attempt $i)"
+              exit 0
+            fi
+            echo "Attempt $i: Django not ready yet, waiting 1s..."
+            sleep 1
+          done
+          echo "ERROR: Django did not start within 15 seconds"
+          exit 1
+
+      - name: Run k6 smoke test
+        # k6 exits non-zero (99) if any threshold in options.thresholds is violated.
+        # Thresholds are the SLOs defined in load-tests/k6/config.js —
+        # the single source of truth. Updating config.js propagates here automatically.
+        # Source: https://grafana.com/docs/k6/latest/using-k6/thresholds/
+        run: |
+          cd yali-backend
+          k6 run \
+            --env K6_BASE_URL=${{ env.K6_BASE_URL }} \
+            --env K6_TEST_PHONE=${{ env.K6_TEST_PHONE }} \
+            load-tests/k6/smoke.js
+
+      - name: Stop Django server
+        # always() ensures cleanup even when k6 exits 99 (SLO violated).
+        if: always()
+        run: |
+          if [ -n "$DJANGO_PID" ]; then
+            kill $DJANGO_PID 2>/dev/null || true
+          fi
+
+  # ── Required-checks aggregator ─────────────────────────────────────────────
+  # A single job that branch protection points to instead of individual jobs.
+  # Benefit: add new required jobs here without touching GitHub Settings each time.
+  # Pattern source: astral-sh/uv CI (lines 407-427, read 2026-04-25)
+  #
+  # GitHub branch protection setting: require "all required checks passed"
+  # instead of requiring "quality", "test", "smoke" individually.
+  all-checks-passed:
+    name: All CI checks passed
+    if: always()
+    needs:
+      - quality
+      - test
+      - smoke
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check all required jobs passed
+        run: |
+          failing=$(echo "$NEEDS_JSON" | jq -r '
+            to_entries[]
+            | select(.value.result != "success" and .value.result != "skipped")
+            | "\(.key): \(.value.result)"
+          ')
+          if [ -n "$failing" ]; then
+            echo "The following required jobs failed or were cancelled:"
+            echo "$failing"
+            exit 1
+          fi
+          echo "All required checks passed."
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}

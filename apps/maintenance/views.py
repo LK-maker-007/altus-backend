@@ -1,0 +1,102 @@
+from __future__ import annotations
+
+from collections.abc import Sequence
+from typing import cast
+from uuid import UUID
+
+import structlog
+from rest_framework.pagination import CursorPagination
+from rest_framework.permissions import BasePermission, IsAuthenticated
+from rest_framework.request import Request
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
+from apps.maintenance.models import MaintenanceTicket, TicketStatus
+from apps.maintenance.serializers import (
+    TicketCreateSerializer,
+    TicketDetailSerializer,
+    TicketReadSerializer,
+)
+from apps.maintenance.services import MaintenanceService
+from apps.users.models import User
+from apps.users.permissions import IsResident
+
+logger = structlog.get_logger(__name__)
+
+_RESIDENT: Sequence[type[BasePermission]] = (IsAuthenticated, IsResident)
+
+
+class _TicketCursorPagination(CursorPagination):
+    """Cursor pagination for maintenance ticket lists, newest first."""
+
+    ordering = "-created_at"
+
+
+class TicketListCreateView(APIView):
+    """
+    GET  /maintenance/tickets/ — list authenticated resident's tickets (US-026)
+    POST /maintenance/tickets/ — create a new ticket with optional photos (US-025)
+
+    POST accepts multipart/form-data. Photos are in request.FILES["photos"].
+    """
+
+    permission_classes = _RESIDENT
+
+    def get(self, request: Request) -> Response:
+        resident = cast(User, request.user)
+        qs = (
+            MaintenanceTicket.objects.filter(raised_by=resident)
+            .prefetch_related("photos")
+            .order_by("-created_at")
+        )
+        status_filter = request.query_params.get("status")
+        if status_filter:
+            # HIGH-004: validate against enum — invalid values return 400, not empty set
+            if status_filter not in TicketStatus.values:
+                from rest_framework.exceptions import ValidationError
+
+                raise ValidationError(
+                    f"Invalid status. Valid values: {TicketStatus.values}"
+                )
+            qs = qs.filter(status=status_filter)
+
+        paginator = _TicketCursorPagination()
+        page = paginator.paginate_queryset(qs, request, view=self)
+        serializer = TicketReadSerializer(page, many=True)
+        return paginator.get_paginated_response(serializer.data)
+
+    def post(self, request: Request) -> Response:
+        resident = cast(User, request.user)
+        serializer = TicketCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        d = serializer.validated_data
+
+        # Photos from multipart upload — getlist handles 0..N files
+        photos = request.FILES.getlist("photos")
+
+        ticket = MaintenanceService.create_ticket(
+            resident=resident,
+            category=str(d["category"]),
+            description=str(d["description"]),
+            photos=list(photos),
+            client_idempotency_key=d.get("client_idempotency_key"),
+            queued_at=d.get("queued_at"),
+        )
+        return Response(
+            TicketReadSerializer(ticket).data,
+            status=201,
+        )
+
+
+class TicketDetailView(APIView):
+    """GET /maintenance/tickets/{id}/ — ticket detail with status history (US-027)."""
+
+    permission_classes = _RESIDENT
+
+    def get(self, request: Request, ticket_id: UUID) -> Response:
+        resident = cast(User, request.user)
+        ticket = MaintenanceService.get_ticket_detail(
+            ticket_id=str(ticket_id),
+            resident=resident,
+        )
+        return Response(TicketDetailSerializer(ticket).data)
