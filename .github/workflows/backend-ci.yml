@@ -72,8 +72,17 @@ jobs:
           ruff check .
 
       - name: Mypy strict type check
+        # WHY --no-incremental:
+        #   mypy's incremental cache stores serialized plugin state keyed to the
+        #   exact mypy + django-stubs version that wrote it. When the pip cache
+        #   restores packages from a previous run but the mypy version changed,
+        #   mypy crashes with:
+        #     "INTERNAL ERROR — Error constructing plugin instance of NewSemanalDjangoPlugin"
+        #   --no-incremental disables all cache reads and writes. On a clean CI
+        #   runner this has zero performance cost (there's no cache to reuse anyway).
+        #   Source: documented in requirements/development.txt §CRITICAL note.
         run: |
-          python -m mypy apps/ config/ manage.py --ignore-missing-imports
+          python -m mypy apps/ config/ manage.py --ignore-missing-imports --no-incremental
 
       - name: Verify DEBUG=False in production settings
         # Boots Django with production settings and asserts DEBUG is False.
