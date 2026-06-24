@@ -10,6 +10,8 @@ build/
 .coverage.*
 .cache
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
 htmlcov/
 coverage.xml
 
@@ -43,3 +45,6 @@ celerybeat.pid
 
 # Hypothesis property-based testing database (local, regenerates)
 .hypothesis/
+
+# Obsidian docs vault — not part of the backend; tracked separately
+native-vault/
