@@ -1,16 +1,4 @@
 #!/bin/sh
-# docker/entrypoint.sh
-#
-# WHY this script (not depends_on alone):
-#   depends_on condition:service_healthy waits for the healthcheck to pass,
-#   but the Django process still starts immediately after — and psycopg may
-#   get a connection refused if postgres is still in init mode.
-#   This script retries the DB connection before running migrations/server.
-#
-# WHY migrate here (not as a separate step):
-#   In local dev, migrations must run before the server starts.
-#   In production (EAS/fly.io), migrations run as a release command separately.
-#   This entrypoint is dev-only.
 
 set -e
 

@@ -1,42 +1,19 @@
 name: Backend CI
 
-# ── Trigger ──────────────────────────────────────────────────────────────────
-# Runs on every PR to main and on every push to main.
-# Three sequential stages — each blocks the next:
-#   Stage 1: Code Quality   (fmt + lint + type-check + deploy-check + migration-lint + pip-audit)
-#   Stage 2: Test Suite     (postgres + redis service, pytest --cov ≥ 80%)
-#   Stage 3: k6 Smoke Test  (spin up Django, run 5-VU/20s k6 smoke, enforce SLOs)
-#
-# MAANG principle: "written ≠ proven."
-# This file is the enforcement mechanism — make gate is for developer feedback,
-# GitHub Actions is the mandatory gate that cannot be skipped.
-
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
 
-# ── Concurrency ───────────────────────────────────────────────────────────────
-# Cancel in-progress runs when a new commit is pushed to the same ref.
-# Prevents wasted runner minutes and eliminates race conditions between
-# parallel runs that share the same database services.
-# Source: django/django, astral-sh/uv (industry standard pattern)
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-# ── Permissions ───────────────────────────────────────────────────────────────
-# Explicit least-privilege. GitHub Actions' default GITHUB_TOKEN has write
-# access to everything. A compromised action (supply-chain attack) can exfiltrate
-# secrets, push code, or create releases if permissions are unrestricted.
-# Each job inherits this default; the codecov job overrides to add id-token.
-# Source: PSF/black, GitHub security hardening documentation (2026)
 permissions:
   contents: read
 
 jobs:
-  # ── Stage 1: Code Quality ──────────────────────────────────────────────────
   quality:
     name: Code Quality
     runs-on: ubuntu-latest
@@ -44,10 +21,6 @@ jobs:
 
     services:
       postgres:
-        # WHY Postgres in the Quality job:
-        #   django-migration-linter --sql-analyser postgresql executes EXPLAIN
-        #   on real SQL against a live DB connection to detect locking operations.
-        #   Without a running Postgres, the linter crashes with Connection Refused.
         image: postgres:16
         env:
           POSTGRES_USER: yali_app
@@ -62,15 +35,10 @@ jobs:
           - 5432:5432
 
     steps:
-      # SHA-pinned to prevent supply-chain attacks via mutable tag rewrites.
-      # Tag @v4 = commit 34e114876b0b11c390a56381ad16ebd13914f8d5 (verified 2026-04-25)
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
-          # Do not persist the GITHUB_TOKEN credential to git's credential store.
-          # Prevents any subsequent step from silently having write access.
           persist-credentials: false
 
-      # SHA-pinned. Tag @v5 = commit a26af69be951a213d495a4c3e4e4022e16d87065
       - name: Set up Python 3.14
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
@@ -91,21 +59,10 @@ jobs:
           ruff check .
 
       - name: Mypy strict type check
-        # WHY --no-incremental:
-        #   mypy's incremental cache stores serialized plugin state keyed to the
-        #   exact mypy + django-stubs version that wrote it. When the pip cache
-        #   restores packages from a previous run but the mypy version changed,
-        #   mypy crashes with:
-        #     "INTERNAL ERROR — Error constructing plugin instance of NewSemanalDjangoPlugin"
-        #   --no-incremental disables all cache reads and writes. On a clean CI
-        #   runner this has zero performance cost (there's no cache to reuse anyway).
-        #   Source: documented in requirements/development.txt §CRITICAL note.
         run: |
           python -m mypy apps/ config/ manage.py --ignore-missing-imports --no-incremental
 
       - name: Verify DEBUG=False in production settings
-        # Boots Django with production settings and asserts DEBUG is False.
-        # Catches accidental DEBUG=True commits before they reach production.
         run: |-
           python -c "
           import os
@@ -133,11 +90,6 @@ jobs:
           "
 
       - name: Django deploy check
-        # WHY: Catches production misconfigurations that pass unit tests but fail
-        # in production. Checks DEBUG, ALLOWED_HOSTS, HSTS, secure cookies,
-        # SECRET_KEY strength, SECURE_PROXY_SSL_HEADER, and more.
-        # Cookiecutter-Django, Sentry both run this. We were missing it.
-        # Source: Django 6.0 docs — manage.py check --deploy
         run: |
           python manage.py check --deploy \
             --settings=config.settings.production \
@@ -161,16 +113,6 @@ jobs:
           SMS_PROVIDER: twilio
 
       - name: Migration linter
-        # WHY: Detects backwards-incompatible migrations before they merge.
-        # Examples of blocked operations:
-        #   - Adding NOT NULL column without default (table lock on large tables)
-        #   - Dropping column while code still references it (rolling deploy crash)
-        #   - Unique constraint on existing data without deferral
-        # Source: github.com/3YOURMIND/django-migration-linter (2025-Q4 active)
-        #
-        # Exclusion config (false positives, third-party migrations) lives in
-        # MIGRATION_LINTER_OPTIONS in config/settings/test.py — not here.
-        # That keeps CI concise and exclusion rationale co-located with the setting.
         run: |
           python manage.py lintmigrations \
             --settings=config.settings.test \
@@ -193,11 +135,6 @@ jobs:
           R2_PUBLIC_URL: https://media.ci.yali.app
 
       - name: Dependency security audit
-        # WHY: Scans requirements/production.txt for packages with known CVEs.
-        # Django, DRF, boto3, PyJWT all release security patches regularly.
-        # Google-maintained pip-audit uses the OSV vulnerability database.
-        # Source: pypi.org/project/pip-audit (Google, 2025 stable release)
-        # Pattern: Sentry, cookiecutter-django, mozilla/kitsune all run this.
         run: |
           pip install pip-audit --quiet
           pip-audit \
@@ -205,7 +142,6 @@ jobs:
             --skip-editable \
             --format columns
 
-  # ── Stage 2: Test Suite ────────────────────────────────────────────────────
   test:
     name: Test Suite
     runs-on: ubuntu-latest
@@ -265,15 +201,9 @@ jobs:
         with:
           python-version: "3.14"
           cache: "pip"
-          # WHY requirements/test.txt (not development.txt):
-          #   test.txt is the flat pinned file designed for this job — includes
-          #   hypothesis, mutmut, pytest-mock, freezegun, factory-boy, and all
-          #   test utilities. development.txt pulls in black/ruff/mypy which are
-          #   installed by the quality job, not needed here.
           cache-dependency-path: requirements/test.txt
 
       - name: Install system dependencies
-        # libmagic1 is required by python-magic for MIME type validation
         run: sudo apt-get install -y libmagic1
 
       - name: Install Python dependencies
@@ -281,8 +211,6 @@ jobs:
           pip install -r requirements/test.txt
 
       - name: Enable btree_gist extension
-        # Required for the GiST exclusion constraint on the Booking table.
-        # Must run BEFORE migrate — the migration creates the constraint.
         run: |
           PGPASSWORD=ci_password psql \
             -h localhost -U yali_app -d yali_test \
@@ -293,8 +221,6 @@ jobs:
           python manage.py migrate --noinput
 
       - name: Run test suite with coverage
-        # -x: fail fast on first failure
-        # --cov-fail-under=80: CI fails if global coverage drops below 80%
         run: |
           pytest \
             --cov=apps \
@@ -305,13 +231,11 @@ jobs:
             -v
 
       - name: Upload coverage to Codecov
-        # SHA-pinned. Tag @v4 = commit b9fd7d16f6d7d1b5d2bec1a2887e65ceed900238
         uses: codecov/codecov-action@b9fd7d16f6d7d1b5d2bec1a2887e65ceed900238 # v4
         with:
           file: coverage.xml
           fail_ci_if_error: false  # Coverage upload failure does not block merge
 
-  # ── Stage 3: k6 Smoke Test ─────────────────────────────────────────────────
   smoke:
     name: k6 Smoke Test
     runs-on: ubuntu-latest
@@ -344,8 +268,6 @@ jobs:
           - 6379:6379
 
     env:
-      # Django runs in "test-like" mode but with a real HTTP server for k6.
-      # SMS_PROVIDER=mock → OTP code 000000 always succeeds.
       DJANGO_SETTINGS_MODULE: config.settings.test
       DATABASE_URL: postgresql://yali_app:ci_password@localhost:5432/yali_smoke
       REDIS_URL: redis://localhost:6379/2
@@ -385,8 +307,6 @@ jobs:
           pip install -r requirements/development.txt
 
       - name: Install k6
-        # Official Grafana k6 installation for Linux (Debian/Ubuntu).
-        # Source: https://grafana.com/docs/k6/latest/set-up/install-k6/
         run: |
           sudo gpg -k
           sudo gpg --no-default-keyring \
@@ -410,8 +330,6 @@ jobs:
           python manage.py migrate --noinput
 
       - name: Create k6 load test user
-        # Creates the deterministic user (+919000099999) that k6's setup()
-        # authenticate() flow uses. Idempotent — safe to run multiple times.
         run: |
           python manage.py create_load_test_user
 
@@ -421,8 +339,6 @@ jobs:
           echo "DJANGO_PID=$!" >> $GITHUB_ENV
 
       - name: Wait for Django to be ready
-        # Polls /api/v1/health/ with 1s intervals, max 15 attempts.
-        # Fails fast rather than hanging for GitHub's 6h default timeout.
         run: |
           echo "Waiting for Django to start on port 8000..."
           for i in $(seq 1 15); do
@@ -437,10 +353,6 @@ jobs:
           exit 1
 
       - name: Run k6 smoke test
-        # k6 exits non-zero (99) if any threshold in options.thresholds is violated.
-        # Thresholds are the SLOs defined in load-tests/k6/config.js —
-        # the single source of truth. Updating config.js propagates here automatically.
-        # Source: https://grafana.com/docs/k6/latest/using-k6/thresholds/
         run: |
           k6 run \
             --env K6_BASE_URL=${{ env.K6_BASE_URL }} \
@@ -448,20 +360,12 @@ jobs:
             load-tests/k6/smoke.js
 
       - name: Stop Django server
-        # always() ensures cleanup even when k6 exits 99 (SLO violated).
         if: always()
         run: |
           if [ -n "$DJANGO_PID" ]; then
             kill $DJANGO_PID 2>/dev/null || true
           fi
 
-  # ── Required-checks aggregator ─────────────────────────────────────────────
-  # A single job that branch protection points to instead of individual jobs.
-  # Benefit: add new required jobs here without touching GitHub Settings each time.
-  # Pattern source: astral-sh/uv CI (lines 407-427, read 2026-04-25)
-  #
-  # GitHub branch protection setting: require "all required checks passed"
-  # instead of requiring "quality", "test", "smoke" individually.
   all-checks-passed:
     name: All CI checks passed
     if: always()

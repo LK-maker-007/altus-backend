@@ -1,36 +1,9 @@
-# docker-compose.yml — Yali local development infrastructure
-#
-# What runs here:  postgres + redis + django + celery-worker + celery-beat
-# Single command:  docker compose up -d
-#
-# WHY DATABASE_URL uses "postgres" (service name) not "localhost":
-#   Inside the Docker network, containers talk to each other via service name.
-#   The .env file keeps localhost URLs for when Django runs on the host machine.
-#   We override the URLs per-service in the environment: block.
-#
-# WHY entrypoint + depends_on service_healthy:
-#   depends_on condition:service_healthy waits for pg_isready to pass before
-#   starting the dependent container. The entrypoint.sh then waits for the
-#   first successful DB connection before running migrations.
-#   Double safety net — Sentry/Codecov pattern.
-#
-# Patterns sourced from (read 2026-04-23):
-#   - github.com/getsentry/self-hosted  → condition:service_healthy, pg_isready, shm_size, PONG grep
-#   - github.com/codecov/codecov-api    → POSTGRES_HOST_AUTH_METHOD=trust
-#   - github.com/bram2w/baserow         → named network, stop_signal on beat
-#   - github.com/mozilla/kitsune        → shm_size:1G reference (we use 256mb, matches Sentry)
-#
-# See docs/local-dev-setup.md for full rationale behind every decision.
-
-# ── YAML anchors ──────────────────────────────────────────────────────────────
 x-healthcheck-defaults: &healthcheck-defaults
   interval: 5s
   timeout: 5s
   retries: 10
   start_period: 10s
 
-# Shared env for all Django-based services (api, worker, beat)
-# Overrides .env DATABASE_URL/REDIS_URL to use Docker service names.
 x-django-env: &django-env
   env_file: .env
   environment:
@@ -38,10 +11,8 @@ x-django-env: &django-env
     REDIS_URL: redis://redis:6379/0
     DJANGO_SETTINGS_MODULE: config.settings.development
 
-# ── Services ──────────────────────────────────────────────────────────────────
 services:
 
-  # ── PostgreSQL 16 ────────────────────────────────────────────────────────────
   postgres:
     image: postgres:16-alpine
     shm_size: 256mb
@@ -62,7 +33,6 @@ services:
       - yali_local
     restart: unless-stopped
 
-  # ── Redis 7.4 ────────────────────────────────────────────────────────────────
   redis:
     image: redis:7.4-alpine
     ports:
@@ -76,7 +46,6 @@ services:
       - yali_local
     restart: unless-stopped
 
-  # ── Django API ───────────────────────────────────────────────────────────────
   api:
     build:
       context: .
@@ -87,13 +56,8 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      # Bind mount source for live reload inside container — edit on host, reload in container
       - .:/app
     healthcheck:
-      # WHY /api/v1/health/: checks DB + Redis — real app readiness, not just process alive.
-      # A Django process that can't reach the DB is not ready to serve traffic.
-      # WHY wget: python:slim ships wget, not curl.
-      # start_period=30s: entrypoint runs migrations before the server starts.
       <<: *healthcheck-defaults
       test: ["CMD-SHELL", "curl -fsS http://localhost:8000/api/v1/health/ | grep -q 'ok'"]
       interval: 10s
@@ -107,7 +71,6 @@ services:
       - yali_local
     restart: unless-stopped
 
-  # ── Celery Worker ────────────────────────────────────────────────────────────
   worker:
     build:
       context: .
@@ -125,16 +88,11 @@ services:
       - yali_local
     restart: unless-stopped
 
-  # ── Celery Beat ──────────────────────────────────────────────────────────────
   beat:
     build:
       context: .
       dockerfile: Dockerfile
     <<: *django-env
-    # WHY stop_signal SIGTERM (Baserow pattern):
-    #   Celery beat holds a schedule lock. SIGTERM triggers a clean shutdown
-    #   that releases the lock before exit. SIGKILL bypasses this and leaves
-    #   a stale lock that blocks the next beat startup for 30s.
     stop_signal: SIGTERM
     command:
       - celery
@@ -155,12 +113,10 @@ services:
       - yali_local
     restart: unless-stopped
 
-# ── Volumes ───────────────────────────────────────────────────────────────────
 volumes:
   postgres_data:
   redis_data:
 
-# ── Networks ──────────────────────────────────────────────────────────────────
 networks:
   yali_local:
     driver: bridge

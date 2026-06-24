@@ -28,48 +28,27 @@ extend-exclude = ["native-vault"]
 
 [tool.ruff.lint]
 select = [
-    "E",   # pycodestyle errors
-    "F",   # pyflakes
-    "I",   # isort
-    "N",   # pep8-naming
-    "UP",  # pyupgrade
-    "S",   # bandit security checks
-    "B",   # bugbear
-    "C4",  # flake8-comprehensions
-    "T20", # no print()
-    "RUF", # ruff-specific
+    "E",
+    "F",
+    "I",
+    "N",
+    "UP",
+    "S",
+    "B",
+    "C4",
+    "T20",
+    "RUF",
 ]
 ignore = ["S101"]
 
 [tool.ruff.lint.per-file-ignores]
-# E402: from __future__ must be first even before module docstring — ruff flags everything
-#   after the docstring as out-of-order. This is our documented pattern in all test files.
-# E501: Long assertion messages in tests acceptable (readability > 88 chars).
-# RUF012: Class-level list literals in test classes are parametrize data, not mutable state.
-# N817: Alias imports in test helper scopes are intentional.
 "tests/**" = ["S101", "S105", "S106", "S107", "RUF001", "RUF002", "E402", "E501", "RUF012", "N817"]
 "scripts/**" = ["E402"]
-"**/admin.py" = ["RUF012"]  # Django admin attrs are class-level config, not mutable state
-# WHY S104 excluded for settings files:
-#   Ruff S104 (bandit B104) fires on the string "0.0.0.0" in any Python literal,
-#   assuming it is a socket bind address (binding to all interfaces = security risk).
-#   In Django's ALLOWED_HOSTS, "0.0.0.0" is a Host-header allowlist entry — it means
-#   "accept requests where the Host header is '0.0.0.0'". This is required for
-#   Docker-based development where the container proxy forwards requests with that
-#   host header. S104 has no Django context and cannot distinguish socket binds from
-#   ALLOWED_HOSTS entries. This is a confirmed bandit false positive.
-#   Source: ruff docs §S104; Django docs §ALLOWED_HOSTS; bandit issue #623.
+"**/admin.py" = ["RUF012"]
 "config/settings/*.py" = ["E402", "F403", "F401", "F405", "E501", "S104"]
 "config/gunicorn.conf.py" = ["N999", "E501", "E402"]
 "apps/core/__init__.py" = ["F401"]
-# Django auto-generates migrations — RUF012 (mutable class attrs) and E501 (long constraint
-# definitions) cannot be fixed without breaking the migration runner. E402 applies to RLS
-# migration 0003 which has a module docstring before the import — intentional pattern.
-# Standard exclusion in all production Django codebases: Sentry, Codecov, mozilla/kitsune.
 "**/migrations/*.py" = ["RUF012", "E501", "E402", "S608"]
-# Management commands — seed_demo_data.py uses em-dashes in human-readable demo strings
-# (intentional typography), long description strings that cannot be shortened without
-# losing meaning, and _/sub_created pattern for get_or_create return values.
 "**/management/commands/*.py" = ["RUF001", "RUF002", "RUF003", "E501"]
 
 [tool.mypy]
@@ -77,10 +56,6 @@ python_version = "3.14"
 strict = true
 ignore_missing_imports = false
 plugins = ["mypy_django_plugin.main"]
-# Exclude dev-only management commands with complex fixture data structures.
-# seed_demo_data.py uses dict[str, Any] for human-readable fixture specs —
-# adding full annotations would be disproportionate effort for non-production code.
-# This is a standard pattern in Sentry, Netbox, and other large Django codebases.
 exclude = [
     "apps/core/management/commands/seed_demo_data\\.py",
 ]
@@ -90,14 +65,6 @@ module = "apps.core.openapi"
 disable_error_code = ["no-untyped-call"]
 
 [tool.django-stubs]
-# WHY config.settings.test (not development):
-#   mypy's django-stubs plugin calls django.setup() at type-check time using this
-#   settings module. development.py → base.py → env("SECRET_KEY") raises
-#   ImproperlyConfigured when SECRET_KEY is not set in the environment.
-#   The mypy step in CI has no env vars (it's a static analysis tool — it
-#   shouldn't need a real database or secrets to check types).
-#   config.settings.test boots with CI-safe dummy defaults by design.
-#   Source: confirmed from CI traceback 2026-05-05.
 django_settings_module = "config.settings.test"
 
 [tool.pytest.ini_options]
@@ -107,26 +74,11 @@ python_classes = ["Test*"]
 python_functions = ["test_*"]
 testpaths = ["tests"]
 addopts = "--no-header -q -x -p no:randomly"
-# -x:            fail fast — no point running 230 tests if booking engine is broken.
-# -p no:randomly  disabled by default; enable with `pytest -p randomly` to detect ordering deps.
-#                 Use `pytest --randomly-seed=last` to reproduce a specific order failure.
-# xdist (-n):    NOT in addopts. Run with `pytest -n auto` manually for long-running suites.
-#                Default is single-process to avoid the PG 'other sessions' teardown race.
 filterwarnings = [
-    # MAANG policy: all warnings from PROJECT code are errors.
-    # Django and third-party libraries have their own deprecation cycles; we
-    # suppress those specifically. Our code must emit zero warnings.
-    # Source: getsentry/sentry pyproject.toml filterwarnings = ["error"];
-    #         audit §testing §warning-as-error policy.
     "error",
-    # Django's own deprecation warnings — tracked separately, not our code.
     "ignore::DeprecationWarning:django",
     "ignore::PendingDeprecationWarning:django",
-    # DRF deprecation warnings — tracked with DRF upgrade cycle.
     "ignore::DeprecationWarning:rest_framework",
-    # psycopg connection-still-open on pytest-xdist worker exit — not real failures.
     "ignore::pytest.PytestWarning",
-    # PyJWT HMAC key length warning — test secrets are intentionally short.
-    # Production secrets are long enough. Source: Sentry pyproject.toml §filterwarnings.
     "ignore:.*HMAC key.*below the minimum recommended length.*:jwt.warnings.InsecureKeyLengthWarning",
 ]

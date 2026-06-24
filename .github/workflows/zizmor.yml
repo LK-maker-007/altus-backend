@@ -1,14 +1,5 @@
 name: Security scan (zizmor)
 
-# Scans GitHub Actions workflow files for security vulnerabilities:
-# - Expression injection (untrusted ${{ github.event.* }} in run: steps)
-# - Excessive permissions
-# - Missing persist-credentials: false
-# - Script injection via pull_request_target misuse
-#
-# Source: https://github.com/zizmor-dev/zizmor
-# Used by: astral-sh/uv CI (.github/workflows/check-zizmor.yml)
-
 on:
   push:
     branches: [main]
@@ -39,27 +30,14 @@ jobs:
           persist-credentials: false
 
       - name: Install zizmor
-        # zizmor is a static analysis tool for GitHub Actions workflow YAML.
-        # It catches injection bugs before they reach production.
         run: |
           pip install zizmor
 
       - name: Run zizmor
-        # --format sarif: outputs GitHub-compatible security report
-        # Results appear in Security → Code Scanning on GitHub.
-        # --no-exit-code: report findings without failing the job
-        #   (change to exit-code if you want hard failure on any finding)
         run: |
           zizmor --format sarif .github/workflows/ > zizmor.sarif || true
 
       - name: Upload SARIF to GitHub Security tab
-        # SHA-pinned. v4 = commit ed410739ba306e4ebe5e123421a6bd694e494a2b (verified 2026-05-05 via gh api)
-        # WHY v4: v3 deprecated December 2026 (GitHub changelog 2025-10-28)
-        # WHY continue-on-error:
-        #   upload-sarif requires GitHub Advanced Security (Enterprise plan).
-        #   On standard/free plans this step errors: "Resource not accessible by integration"
-        #   The zizmor scan itself still runs and any findings are printed to the log.
-        #   continue-on-error: true prevents a billing-tier limitation from blocking CI.
         uses: github/codeql-action/upload-sarif@ed410739ba306e4ebe5e123421a6bd694e494a2b # v4
         continue-on-error: true
         with:
