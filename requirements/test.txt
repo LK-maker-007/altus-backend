@@ -32,7 +32,7 @@ mutmut==2.5.1                  # mutation testing — validates test effectivene
 # ── Django + all app dependencies ─────────────────────────────────────────────
 # pytest-django imports Django at collection time. All packages imported by
 # the application code must be installed or collection fails with ImportError.
-Django==6.0.4
+Django==6.0.6
 djangorestframework==3.17.1
 django-cors-headers==4.6.0
 django-environ==0.11.2
@@ -40,7 +40,7 @@ django-filter==24.3
 psycopg[binary]==3.3.3
 
 # Auth
-PyJWT==2.9.0
+PyJWT==2.13.0
 
 # Async tasks
 celery==5.6.3
