@@ -10,10 +10,21 @@ requires-python = ">=3.14"
 [tool.black]
 line-length = 88
 target-version = ["py313"]
+extend-exclude = '''
+/(
+  native-vault
+)/
+'''
+force-exclude = '''
+/(
+  native-vault
+)/
+'''
 
 [tool.ruff]
 target-version = "py313"
 line-length = 88
+extend-exclude = ["native-vault"]
 
 [tool.ruff.lint]
 select = [
@@ -49,7 +60,8 @@ ignore = ["S101"]
 #   ALLOWED_HOSTS entries. This is a confirmed bandit false positive.
 #   Source: ruff docs §S104; Django docs §ALLOWED_HOSTS; bandit issue #623.
 "config/settings/*.py" = ["E402", "F403", "F401", "F405", "E501", "S104"]
-"config/gunicorn.conf.py" = ["N999", "E501"]  # not a Python module — gunicorn config file, long log format string is unavoidable
+"config/gunicorn.conf.py" = ["N999", "E501", "E402"]
+"apps/core/__init__.py" = ["F401"]
 # Django auto-generates migrations — RUF012 (mutable class attrs) and E501 (long constraint
 # definitions) cannot be fixed without breaking the migration runner. E402 applies to RLS
 # migration 0003 which has a module docstring before the import — intentional pattern.
@@ -72,6 +84,10 @@ plugins = ["mypy_django_plugin.main"]
 exclude = [
     "apps/core/management/commands/seed_demo_data\\.py",
 ]
+
+[[tool.mypy.overrides]]
+module = "apps.core.openapi"
+disable_error_code = ["no-untyped-call"]
 
 [tool.django-stubs]
 # WHY config.settings.test (not development):

@@ -5,13 +5,11 @@ from django.urls import path
 from apps.visitors import views
 
 urlpatterns = [
-    # Resident endpoints
     path(
         "",
         views.VisitorListCreateView.as_view(),
         name="visitor-list-create",
     ),
-    # Security endpoints
     path(
         "verify/",
         views.VisitorVerifyView.as_view(),

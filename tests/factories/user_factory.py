@@ -8,12 +8,6 @@ from tests.factories.complex_factory import ComplexFactory
 
 
 class UserFactory(DjangoModelFactory):
-    """
-    Factory for the custom User model.
-
-    Defaults to RESIDENT role with a unique phone number.
-    Override role, complex, and phone_number in tests as needed.
-    """
 
     class Meta:
         model = User

@@ -31,12 +31,10 @@ class LostFoundReport(ComplexScopedModel, TimestampedModel):
         choices=LostFoundStatus.choices,
         default=LostFoundStatus.OPEN,
     )
-    # created_at from TimestampedModel serves as the report timestamp
     claimed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         indexes: ClassVar[list[models.Index]] = [
-            # Active reports list for a complex, newest first
             models.Index(fields=["complex", "status", "created_at"]),
         ]
         constraints: ClassVar[list[models.BaseConstraint]] = [

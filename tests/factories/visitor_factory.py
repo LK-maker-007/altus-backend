@@ -13,24 +13,11 @@ from tests.factories.user_factory import UserFactory
 
 
 class VisitorFactory(DjangoModelFactory):
-    """Factory for pre-registered Visitor pass instances.
-
-    Traits (MAANG pattern -- factory_boy Params):
-        VisitorFactory(expired=True)  -> EXPIRED visitor, expected_until in the past
-        VisitorFactory(arrived=True)  -> ARRIVED visitor with arrived_at set
-
-    Source: factory_boy docs (factoryboy.readthedocs.io/en/stable/reference.html)
-    Verified 2026-04-25.
-    """
 
     class Meta:
         model = Visitor
 
     class Params:
-        """
-        Trait declarations.
-        Each Trait is a named preset that overrides multiple fields atomically.
-        """
 
         expired = factory.Trait(
             status=VisitorStatus.EXPIRED,

@@ -8,7 +8,6 @@ from tests.factories.complex_factory import ComplexFactory
 
 
 class UnitFactory(DjangoModelFactory):
-    """Factory for apartment Unit instances."""
 
     class Meta:
         model = Unit
@@ -17,4 +16,4 @@ class UnitFactory(DjangoModelFactory):
     unit_number = factory.Sequence(lambda n: f"A-{n + 100}")
     building_block = "A"
     floor = factory.Sequence(lambda n: (n % 10) + 1)
-    registered_resident = None  # unregistered by default
+    registered_resident = None

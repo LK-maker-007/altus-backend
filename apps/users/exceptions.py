@@ -28,7 +28,6 @@ _REGISTRATION_FAILED_MSG = (
 
 
 class RegistrationFailedError(APIException):
-    """Generic — never hint which field failed (US-003 security requirement)."""
 
     status_code = 400
     default_code = "REGISTRATION_FAILED"

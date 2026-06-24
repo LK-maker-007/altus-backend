@@ -15,9 +15,6 @@ class RequestIdMiddleware:
 
     def __call__(self, request: HttpRequest) -> HttpResponse:
         request_id = str(uuid.uuid4())
-        # cast(): AuthenticatedRequest is a typed subclass of HttpRequest.
-        # We own the request lifecycle — .request_id is set immediately below.
-        # cast() is the mypy-approved alternative to type: ignore[assignment].
         auth_request = cast(AuthenticatedRequest, request)
         auth_request.request_id = request_id
         response = self.get_response(auth_request)

@@ -7,12 +7,6 @@ from apps.notifications.models import NotificationLog
 
 @admin.register(NotificationLog)
 class NotificationLogAdmin(admin.ModelAdmin[NotificationLog]):
-    """Read-only admin view for the push notification delivery audit trail.
-
-    WHY read-only: NotificationLog is an append-only audit record. Allowing
-    admin edits would corrupt the delivery history. The admin surface exists
-    purely for operator triage: "why didn't user X receive their reminder?"
-    """
 
     list_display = (
         "id",
@@ -43,10 +37,9 @@ class NotificationLogAdmin(admin.ModelAdmin[NotificationLog]):
     )
     ordering = ("-created_at",)
 
+    @admin.display(description="Token (prefix)")
     def push_token_prefix(self, obj: NotificationLog) -> str:
         return obj.push_token[:25] + "…" if len(obj.push_token) > 25 else obj.push_token
-
-    push_token_prefix.short_description = "Token (prefix)"  # type: ignore[attr-defined]
 
     def has_add_permission(self, request: object) -> bool:
         return False

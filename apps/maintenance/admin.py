@@ -30,10 +30,6 @@ class TicketStatusHistoryInline(
 
 @admin.register(MaintenanceTicket)
 class MaintenanceTicketAdmin(ComplexScopedModelAdmin):
-    """Admin for managing maintenance tickets.
-
-    Status changes trigger a push notification to the resident via Celery task.
-    """
 
     list_display = ("title", "category", "status", "raised_by", "created_at")
     list_filter = ("category", "status")
@@ -49,7 +45,6 @@ class MaintenanceTicketAdmin(ComplexScopedModelAdmin):
         change: bool,
     ) -> None:
         if change:
-            # Capture old status before saving to detect transitions
             try:
                 old_status = MaintenanceTicket.objects.get(pk=obj.pk).status
             except MaintenanceTicket.DoesNotExist:
@@ -60,9 +55,6 @@ class MaintenanceTicketAdmin(ComplexScopedModelAdmin):
         super().save_model(request, obj, form, change)
 
         if change and old_status != obj.status:
-            # Log the status transition in the history table.
-            # cast: admin middleware guarantees request.user is a staff User,
-            # never AnonymousUser — mypy cannot infer this from HttpRequest alone.
             TicketStatusHistory.objects.create(
                 ticket=obj,
                 status=obj.status,

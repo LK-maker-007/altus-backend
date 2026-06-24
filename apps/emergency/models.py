@@ -16,7 +16,6 @@ class EmergencyContact(ComplexScopedModel, TimestampedModel):
 
     class Meta:
         indexes: ClassVar[list[models.Index]] = [
-            # Contacts list — ordered by display_order, active only
             models.Index(fields=["complex", "is_active", "display_order"]),
         ]
         ordering: ClassVar[list[str]] = ["display_order"]

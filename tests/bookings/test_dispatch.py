@@ -1,23 +1,5 @@
 from __future__ import annotations
 
-"""
-Layer 2 dispatch tests — apps/bookings/services.py
-
-Verifies that BookingService correctly enqueues Celery tasks via
-transaction.on_commit() after a DB commit.
-
-Pattern (per research-rule.md §10, Django 6.0 official docs, Celery 5.6.3 docs):
-  - django_capture_on_commit_callbacks(execute=True) simulates the DB commit
-    that pytest's test transaction never actually makes.
-  - mock .apply_async() — NOT the task function. The service calls .apply_async().
-  - assert_called_once_with() verifies exact args passed to the broker.
-
-Sources:
-  Django 6.0 — https://docs.djangoproject.com/en/6.0/topics/db/transactions/#use-in-tests
-  Celery 5.6.3 — https://docs.celeryq.dev/en/stable/userguide/testing.html
-  pytest-django 4.12.0 — django_capture_on_commit_callbacks fixture (added 4.7.0)
-"""
-
 from datetime import timedelta
 from typing import Any
 
@@ -30,13 +12,6 @@ from apps.bookings.services import BookingService
 
 @pytest.mark.django_db
 class TestBookingDispatch:
-    """
-    Layer 2 — dispatch tests for BookingService.
-
-    These tests prove the SERVICE CODE correctly registers the on_commit callback
-    and passes the right args to apply_async. The task's internal logic is
-    separately covered in TestExpireBookingHoldTask / TestSendBookingReminderTask.
-    """
 
     def test_create_hold_dispatches_expire_task_on_commit(
         self,
@@ -46,15 +21,6 @@ class TestBookingDispatch:
         django_capture_on_commit_callbacks: Any,
         mocker: Any,
     ) -> None:
-        """
-        BookingService.create_hold() must enqueue expire_booking_hold via
-        transaction.on_commit() AFTER the atomic block commits.
-
-        Verifies:
-        - .apply_async() is called exactly once
-        - args = [str(booking.id), str(booking.complex_id)]
-        - countdown = _HOLD_TTL_MINUTES * 60  (= 300 seconds)
-        """
         mock_expire = mocker.patch(
             "apps.bookings.tasks.expire_booking_hold.apply_async"
         )
@@ -77,7 +43,7 @@ class TestBookingDispatch:
                 str(booking.id),
                 str(booking.complex_id),
             ),
-            countdown=5 * 60,  # _HOLD_TTL_MINUTES = 5
+            countdown=5 * 60,
         )
 
     def test_confirm_hold_dispatches_reminder_task_on_commit(
@@ -88,15 +54,6 @@ class TestBookingDispatch:
         django_capture_on_commit_callbacks: Any,
         mocker: Any,
     ) -> None:
-        """
-        BookingService.confirm_hold() must enqueue send_booking_reminder via
-        transaction.on_commit() after the booking status is set to CONFIRMED.
-
-        Verifies:
-        - .apply_async() is called exactly once
-        - args = [str(booking.id), str(booking.complex_id)]
-        - eta = booking.slot_start - timedelta(minutes=30)
-        """
         from tests.factories.booking_factory import BookingFactory
 
         mock_reminder = mocker.patch(
@@ -140,16 +97,10 @@ class TestBookingDispatch:
         django_capture_on_commit_callbacks: Any,
         mocker: Any,
     ) -> None:
-        """
-        If create_hold raises (e.g., slot unavailable), the atomic block rolls
-        back and on_commit callbacks must NOT fire. The expire task must never
-        be enqueued for a booking that was never committed.
-        """
         mock_expire = mocker.patch(
             "apps.bookings.tasks.expire_booking_hold.apply_async"
         )
 
-        # Create a confirmed booking occupying the slot — will trigger SlotUnavailableError
         from tests.factories.booking_factory import BookingFactory
 
         slot_start = timezone.now().replace(
@@ -157,7 +108,6 @@ class TestBookingDispatch:
         ) + timedelta(days=2)
         slot_end = slot_start + timedelta(hours=1)
 
-        # Pre-occupy the slot
         BookingFactory(
             complex=complex_a,
             facility=facility,
@@ -179,5 +129,4 @@ class TestBookingDispatch:
                     slot_end=slot_end,
                 )
 
-        # Transaction rolled back — on_commit callback never registered
         mock_expire.assert_not_called()

@@ -13,12 +13,6 @@ from tests.factories.user_factory import UserFactory
 
 
 class BookingFactory(DjangoModelFactory):
-    """
-    Factory for Booking instances.
-
-    Defaults to HOLD status expiring in 5 minutes.
-    Override status=BookingStatus.CONFIRMED + expires_at=None for confirmed bookings.
-    """
 
     class Meta:
         model = Booking
@@ -34,5 +28,5 @@ class BookingFactory(DjangoModelFactory):
     status = BookingStatus.HOLD
     expires_at = factory.LazyFunction(lambda: timezone.now() + timedelta(minutes=5))
     cancelled_at = None
-    cancellation_reason = ""  # model default is blank=True, default="" — NOT NULL
-    cancellation_source = ""  # model default is blank=True, default="" — NOT NULL
+    cancellation_reason = ""
+    cancellation_source = ""

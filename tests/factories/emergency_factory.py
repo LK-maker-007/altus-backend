@@ -8,7 +8,6 @@ from tests.factories.complex_factory import ComplexFactory
 
 
 class EmergencyContactFactory(DjangoModelFactory):
-    """Factory for EmergencyContact instances."""
 
     class Meta:
         model = EmergencyContact

@@ -8,7 +8,6 @@ from apps.emergency.models import EmergencyContact
 
 
 class EmergencyContactSerializer(serializers.ModelSerializer[EmergencyContact]):
-    """Read serializer for the emergency contacts list endpoint (api-contract §9)."""
 
     class Meta:
         model = EmergencyContact

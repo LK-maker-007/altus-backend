@@ -10,12 +10,7 @@ from apps.core.models import Complex, Plan, Subscription, Unit
 from apps.users.models import UserRole
 
 
-class ComplexScopedModelAdmin(
-    admin.ModelAdmin[Any]
-):  # Any = multi-model base; concrete subclasses supply their model type
-    """Base admin for all tenant-scoped models.
-    platform_admin sees all complexes; complex_admin sees only their own.
-    """
+class ComplexScopedModelAdmin(admin.ModelAdmin[Any]):
 
     def get_queryset(self, request: HttpRequest) -> QuerySet[Any]:
         qs = super().get_queryset(request)
@@ -41,7 +36,6 @@ class ComplexScopedModelAdmin(
         return getattr(obj, "complex", None) == getattr(request.user, "complex", None)
 
     def has_delete_permission(self, request: HttpRequest, obj: object = None) -> bool:
-        # Only platform_admin can delete — complex_admin is read/write only
         return getattr(request.user, "role", "") == UserRole.PLATFORM_ADMIN
 
 

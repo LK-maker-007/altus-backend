@@ -1,20 +1,5 @@
 from __future__ import annotations
 
-"""
-Health check endpoint tests — GET /api/v1/health/
-
-Tests cover:
-  - Happy path: DB + cache both healthy → 200 + status:ok
-  - DB failure: OperationalError → 503 + status:degraded + database error
-  - Cache failure: Exception in cache.set → 503 + status:degraded + cache error
-  - No auth required: anonymous client gets 200 (public endpoint)
-
-Design decisions:
-  - Uses unittest.mock to simulate dependency failures without stopping containers
-  - Validates exact response schema (status, checks.database, checks.cache)
-  - 503 on dependency failure — not 500 — signals LB to remove instance from pool
-"""
-
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -24,10 +9,8 @@ from django.db import OperationalError
 
 @pytest.mark.django_db
 class TestHealthCheckView:
-    """GET /api/v1/health/ — K8s readiness probe."""
 
     def test_healthy_returns_200_ok(self, api_client: Any) -> None:
-        """Happy path — DB + Redis both reachable → 200 with status:ok."""
         response = api_client.get("/api/v1/health/")
 
         assert response.status_code == 200
@@ -36,20 +19,11 @@ class TestHealthCheckView:
         assert response.data["checks"]["cache"] == "ok"
 
     def test_no_auth_required(self, api_client: Any) -> None:
-        """Health endpoint must be public — K8s probes have no Bearer token."""
-        # api_client is anonymous (no force_authenticate)
         response = api_client.get("/api/v1/health/")
-        # Must be 200 or 503 — never 401/403
         assert response.status_code in (200, 503)
         assert "status" in response.data
 
     def test_database_failure_returns_503(self, api_client: Any) -> None:
-        """
-        When PostgreSQL is unreachable, HealthCheckView catches OperationalError
-        and returns 503 with status:degraded and database error message.
-
-        This verifies the LB-removal pattern: 503 = "take me out of rotation".
-        """
         mock_cursor = MagicMock()
         mock_cursor.__enter__ = MagicMock(return_value=mock_cursor)
         mock_cursor.__exit__ = MagicMock(return_value=False)
@@ -65,14 +39,9 @@ class TestHealthCheckView:
         assert response.status_code == 503
         assert response.data["status"] == "degraded"
         assert "error:" in response.data["checks"]["database"]
-        # Cache was not affected — only DB failed
         assert response.data["checks"]["cache"] == "ok"
 
     def test_cache_failure_returns_503(self, api_client: Any) -> None:
-        """
-        When Redis is unreachable, cache.set raises an exception.
-        HealthCheckView catches it and returns 503.
-        """
         with patch("apps.core.health.cache") as mock_cache:
             mock_cache.set.side_effect = Exception("Connection refused: Redis")
 
@@ -81,11 +50,9 @@ class TestHealthCheckView:
         assert response.status_code == 503
         assert response.data["status"] == "degraded"
         assert "error:" in response.data["checks"]["cache"]
-        # DB was not affected — only cache failed
         assert response.data["checks"]["database"] == "ok"
 
     def test_both_failures_returns_503(self, api_client: Any) -> None:
-        """Both DB and cache down → 503 with both error messages."""
         mock_cursor = MagicMock()
         mock_cursor.__enter__ = MagicMock(return_value=mock_cursor)
         mock_cursor.__exit__ = MagicMock(return_value=False)

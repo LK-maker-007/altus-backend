@@ -95,7 +95,7 @@ services:
       # WHY wget: python:slim ships wget, not curl.
       # start_period=30s: entrypoint runs migrations before the server starts.
       <<: *healthcheck-defaults
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8000/api/v1/health/ | grep -q 'ok'"]
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/api/v1/health/ | grep -q 'ok'"]
       interval: 10s
       start_period: 30s
     depends_on:

@@ -1,10 +1,3 @@
-"""
-Factory re-exports for test import convenience.
-
-Usage in tests:
-    from tests.factories import ComplexFactory, UserFactory, BookingFactory
-"""
-
 from __future__ import annotations
 
 from tests.factories.announcement_factory import AnnouncementFactory

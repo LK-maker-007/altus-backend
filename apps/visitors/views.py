@@ -4,6 +4,7 @@ from collections.abc import Sequence
 from typing import cast
 
 from drf_spectacular.utils import extend_schema
+from rest_framework.pagination import CursorPagination
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -19,16 +20,15 @@ from apps.visitors.serializers import (
 )
 from apps.visitors.services import VisitorService
 
-# Tuples: immutable → no RUF012; Sequence[type[BasePermission]] satisfies DRF stubs
 _RESIDENT: Sequence[type[BasePermission]] = (IsAuthenticated, IsResident)
 _SECURITY: Sequence[type[BasePermission]] = (IsAuthenticated, IsSecurityGuard)
 
 
+class _VisitorCursorPagination(CursorPagination):
+    ordering = "-created_at"
+
+
 class VisitorListCreateView(APIView):
-    """
-    GET  /api/v1/visitors/  — resident's own visitor passes (US-023)
-    POST /api/v1/visitors/  — pre-register a visitor, returns OTP (US-019)
-    """
 
     permission_classes = _RESIDENT
 
@@ -46,8 +46,10 @@ class VisitorListCreateView(APIView):
         if status_filter:
             qs = qs.filter(status=status_filter)
 
-        serializer = VisitorReadSerializer(qs, many=True)
-        return Response({"results": serializer.data})
+        paginator = _VisitorCursorPagination()
+        page = paginator.paginate_queryset(qs, request, view=self)
+        serializer = VisitorReadSerializer(page, many=True)
+        return paginator.get_paginated_response(serializer.data)
 
     @extend_schema(
         request=VisitorCreateSerializer,
@@ -72,11 +74,6 @@ class VisitorListCreateView(APIView):
 
 
 class VisitorVerifyView(APIView):
-    """
-    POST /api/v1/security/visitors/verify/
-    Security guard looks up visitor by OTP at the gate (US-021).
-    Does NOT mark as arrived — that is a separate explicit action.
-    """
 
     permission_classes = _SECURITY
 
@@ -99,10 +96,6 @@ class VisitorVerifyView(APIView):
 
 
 class VisitorArriveView(APIView):
-    """
-    POST /api/v1/security/visitors/{id}/arrive/
-    Security guard marks visitor as arrived after OTP verification (US-022).
-    """
 
     permission_classes = _SECURITY
 

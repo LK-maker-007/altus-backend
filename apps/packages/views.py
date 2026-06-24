@@ -4,6 +4,7 @@ from collections.abc import Sequence
 from typing import cast
 
 from drf_spectacular.utils import extend_schema
+from rest_framework.pagination import CursorPagination
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -18,17 +19,16 @@ from apps.packages.services import PackageService
 from apps.users.models import User
 from apps.users.permissions import IsResident, IsSecurityGuard
 
-# Tuples: immutable → no RUF012; Sequence[type[BasePermission]] satisfies DRF stubs
 _RESIDENT: Sequence[type[BasePermission]] = (IsAuthenticated, IsResident)
 _SECURITY: Sequence[type[BasePermission]] = (IsAuthenticated, IsSecurityGuard)
 _ANY_AUTH: Sequence[type[BasePermission]] = (IsAuthenticated,)
 
 
+class _PackageCursorPagination(CursorPagination):
+    ordering = "-created_at"
+
+
 class PackageListView(APIView):
-    """
-    GET /api/v1/packages/
-    Resident sees their own unit's packages. Security sees all (US-026).
-    """
 
     permission_classes = _RESIDENT
 
@@ -41,8 +41,6 @@ class PackageListView(APIView):
         from apps.packages.models import Package
 
         resident = cast(User, request.user)
-        # IsResident permission guarantees unit_id is not None.
-        # Guard with explicit raise rather than assert (stripped by python -O).
         if resident.unit_id is None:
             from rest_framework.exceptions import PermissionDenied
 
@@ -53,15 +51,13 @@ class PackageListView(APIView):
         if status_filter:
             qs = qs.filter(status=status_filter)
 
-        serializer = PackageReadSerializer(qs, many=True)
-        return Response({"results": serializer.data})
+        paginator = _PackageCursorPagination()
+        page = paginator.paginate_queryset(qs, request, view=self)
+        serializer = PackageReadSerializer(page, many=True)
+        return paginator.get_paginated_response(serializer.data)
 
 
 class PackageLogView(APIView):
-    """
-    POST /api/v1/security/packages/
-    Security guard logs an incoming package against a unit (US-024).
-    """
 
     permission_classes = _SECURITY
 
@@ -85,15 +81,10 @@ class PackageLogView(APIView):
             description=str(d["description"]),
             notes=str(d.get("notes") or ""),
         )
-        # Service returns package with select_related("unit") — no refresh needed.
         return Response(PackageLogResponseSerializer(package).data, status=201)
 
 
 class PackageCollectView(APIView):
-    """
-    POST /api/v1/packages/{id}/collect/
-    Resident or security marks a package as collected (US-026).
-    """
 
     permission_classes = _ANY_AUTH
 

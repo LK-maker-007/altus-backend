@@ -8,7 +8,6 @@ from apps.packages.models import Package
 
 
 class PackageLogSerializer(serializers.Serializer[dict[str, Any]]):
-    """Write serializer — security logs an incoming package (US-024)."""
 
     unit_number = serializers.CharField(max_length=20)
     building_block = serializers.CharField(max_length=50)
@@ -17,9 +16,7 @@ class PackageLogSerializer(serializers.Serializer[dict[str, Any]]):
 
 
 class PackageReadSerializer(serializers.ModelSerializer[Package]):
-    """Read serializer — shapes package output for resident and security views."""
 
-    # Map created_at → logged_at in the response (api-contract §6 field name)
     logged_at = serializers.DateTimeField(source="created_at", read_only=True)
 
     class Meta:
@@ -36,7 +33,6 @@ class PackageReadSerializer(serializers.ModelSerializer[Package]):
 
 
 class PackageLogResponseSerializer(serializers.ModelSerializer[Package]):
-    """201 response shape for POST /security/packages/ per api-contract sec 6."""
 
     unit_number = serializers.CharField(source="unit.unit_number", read_only=True)
     logged_at = serializers.DateTimeField(source="created_at", read_only=True)

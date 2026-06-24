@@ -23,11 +23,9 @@ _SLOT_CACHE_TTL_SECONDS = 30
 class SlotComputeService:
     @staticmethod
     def compute_slots(facility: Facility, target_date: date) -> list[SlotData]:
-        """Return slot availability grid. Cached in Redis at 30-second TTL."""
         cache_key = f"facility:{facility.id}:date:{target_date.isoformat()}:slots"
         cached = cache.get(cache_key)
         if cached is not None:
-            # json.loads returns Any — cast to list[SlotData] we serialised below.
             return cast(list[SlotData], json.loads(cached))
         slots = SlotComputeService._build_slots(facility, target_date)
         cache.set(cache_key, json.dumps(slots), timeout=_SLOT_CACHE_TTL_SECONDS)
@@ -40,7 +38,6 @@ class SlotComputeService:
 
     @staticmethod
     def _build_slots(facility: Facility, target_date: date) -> list[SlotData]:
-        # operating_hours is a JSON field — cast to our typed schema.
         hours = cast(OperatingHours, facility.operating_hours)
         if target_date.weekday() not in hours["days"]:
             return []
@@ -53,7 +50,6 @@ class SlotComputeService:
             target_date, time.fromisoformat(hours["end"]), tzinfo=_IST
         )
 
-        # Single query covering the (facility, slot_start, slot_end, status) index.
         occupied_qs = (
             Booking.unscoped.filter(facility=facility, slot_start__date=target_date)
             .filter(

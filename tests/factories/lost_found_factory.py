@@ -9,7 +9,6 @@ from tests.factories.user_factory import UserFactory
 
 
 class LostFoundReportFactory(DjangoModelFactory):
-    """Factory for LostFoundReport instances."""
 
     class Meta:
         model = LostFoundReport

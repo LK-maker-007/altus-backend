@@ -11,20 +11,13 @@ _ModelT = TypeVar("_ModelT", bound="ComplexScopedModel")
 
 
 class ComplexScopedQuerySet(models.QuerySet[_ModelT]):
-    """
-    Base QuerySet for all tenant-scoped models.
-    Subclass this per app to add domain-specific filter methods.
-    """
+    pass
 
 
+# Default manager that auto-scopes every query to the request's tenant. The
+# DB-level RLS policies are the real backstop; this is the application-layer
+# convenience so views never have to filter by complex by hand.
 class ComplexScopedManager(models.Manager[_ModelT]):
-    """
-    Default manager for every tenant-scoped model.
-    Automatically narrows every queryset to the current request's complex.
-    ContextVar context is set by ComplexContextMiddleware on every request.
-    Uses ContextVar (not thread-local) — async-safe, no thread affinity.
-    """
-
     def get_queryset(self) -> ComplexScopedQuerySet[_ModelT]:
         qs: ComplexScopedQuerySet[_ModelT] = ComplexScopedQuerySet(
             self.model, using=self._db
@@ -48,7 +41,8 @@ class ComplexScopedModel(models.Model):
     complex = models.ForeignKey("core.Complex", on_delete=models.RESTRICT)
 
     objects = ComplexScopedManager()
-    # Escape hatch for Celery tasks — always filter by complex_id explicitly.
+    # Bypasses tenant scoping — use only in Celery tasks/commands with an explicit
+    # complex_id, never in a request path.
     unscoped = models.Manager()
 
     class Meta:
@@ -74,7 +68,6 @@ class Complex(TimestampedModel):
     city = models.CharField(max_length=100)
     state = models.CharField(max_length=100)
     is_active = models.BooleanField(default=True)
-    # HMAC-signed token embedded in the QR code. Rotated by platform admin.
     registration_token = models.CharField(max_length=512, null=True, blank=True)
     registration_token_expires_at = models.DateTimeField(null=True, blank=True)
 
@@ -90,8 +83,8 @@ class Plan(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=100)
     max_units = models.PositiveIntegerField()
-    price_monthly_inr = models.PositiveIntegerField()  # stored in paise — no floats
-    price_annual_inr = models.PositiveIntegerField()  # stored in paise
+    price_monthly_inr = models.PositiveIntegerField()
+    price_annual_inr = models.PositiveIntegerField()
     features = models.JSONField(default=dict)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -136,7 +129,6 @@ class Unit(TimestampedModel):
     unit_number = models.CharField(max_length=20)
     building_block = models.CharField(max_length=50)
     floor = models.SmallIntegerField()
-    # Null = unregistered. Set on registration, cleared on tenant turnover.
     registered_resident = models.OneToOneField(
         "users.User",
         on_delete=models.SET_NULL,
@@ -153,9 +145,7 @@ class Unit(TimestampedModel):
             )
         ]
         indexes: ClassVar[list[models.Index]] = [
-            # Registration lookup — hot path during resident sign-up
             models.Index(fields=["complex", "building_block", "unit_number"]),
-            # Reverse lookup from user to their unit
             models.Index(fields=["registered_resident"]),
         ]
         ordering: ClassVar[list[str]] = ["building_block", "floor", "unit_number"]
@@ -165,48 +155,19 @@ class Unit(TimestampedModel):
 
 
 class FailedTask(TimestampedModel):
-    """Application-level Dead Letter Queue for exhausted Celery tasks.
-
-    WHY this model exists (the silent discard problem):
-      Celery with a Redis broker has no native DLQ. After max_retries=3 and
-      all backoff attempts, the task is silently discarded. Sentry captures the
-      exception traceback, but there is no queryable record of "which 3 residents
-      never received their booking reminder" — only an error event with no context.
-      This model bridges that gap: every terminal task failure is written here
-      before Celery discards it, giving operators:
-        - A queryable audit trail (task name, args, exception, traceback, retry count).
-        - An admin interface for manual retry or triage.
-        - A basis for alerting (e.g. PagerDuty when row count spikes).
-
-    WHY in the core app (not a dedicated app):
-      FailedTask is cross-domain infrastructure, not owned by any single feature app.
-      The core app is the appropriate owner for framework-level operational models.
-
-    Source: audit §P2 §No Background Job Monitoring / Dead Letter Queue;
-            2026 Celery production best practice §application-level dead lettering.
-    """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    # Full dotted module path, e.g. "apps.bookings.tasks.send_booking_reminder".
     task_name = models.CharField(max_length=255, db_index=True)
-    # JSON-serialised positional args and keyword args passed to the task.
     task_args = models.JSONField(default=list)
     task_kwargs = models.JSONField(default=dict)
-    # Exception class name (e.g. "ConnectionError") — denormalised for fast filtering.
     exception_class = models.CharField(max_length=200, blank=True)
-    # Full traceback as a string — for display in the admin DLQ triage view.
     traceback = models.TextField(blank=True)
-    # Celery retry count at point of terminal failure.
     retries = models.PositiveSmallIntegerField(default=0)
-    # Set by the on_failure signal handler after writing this record.
-    # False = new, True = reviewed / retried by an operator.
     resolved = models.BooleanField(default=False, db_index=True)
 
     class Meta:
         indexes: ClassVar[list[models.Index]] = [
-            # Operator DLQ triage view: unresolved failures, newest first.
             models.Index(fields=["resolved", "-created_at"]),
-            # Per-task analytics: failure rate per task type.
             models.Index(fields=["task_name", "created_at"]),
         ]
 

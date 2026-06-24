@@ -19,7 +19,5 @@ urlpatterns = [
         FacilitySlotStreamView.as_view(),
         name="slots-stream",
     ),
-    # SSE ticket exchange — clients POST here first to get a 60s single-use
-    # ticket before opening the EventSource connection. See SseTicketIssueView.
     path("sse-ticket/", SseTicketIssueView.as_view(), name="sse-ticket"),
 ]

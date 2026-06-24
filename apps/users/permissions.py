@@ -56,10 +56,6 @@ class IsPlatformAdmin(BasePermission):
 
 
 class IsResidentOrAdmin(BasePermission):
-    """Resident, complex_admin, or platform_admin.
-    Used by facilities endpoints and the SSE slot stream.
-    Composite class avoids the DRF | operator (returns OperandHolder, not type-safe).
-    """
 
     message = "Resident or admin account required."
 

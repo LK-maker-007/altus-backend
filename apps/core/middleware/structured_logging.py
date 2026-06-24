@@ -15,7 +15,7 @@ class StructuredLoggingMiddleware:
 
     def __call__(self, request: HttpRequest) -> HttpResponse:
         started_at = time.monotonic()
-        status_code = 500  # default; overwritten on success
+        status_code = 500
         try:
             response = self.get_response(request)
             status_code = response.status_code
@@ -23,13 +23,6 @@ class StructuredLoggingMiddleware:
         except Exception:
             raise
         finally:
-            # WHY finally (not after get_response):
-            #   If get_response raises an unhandled exception (Django 500 path),
-            #   execution never reaches the line after the call — the request is
-            #   silently un-logged. try/finally guarantees request_completed fires
-            #   for every request, including 500s. Pattern from
-            #   ComplexContextMiddleware.
-            #   Source: audit §Minor §StructuredLoggingMiddleware 500 path.
             user = getattr(request, "user", None)
             logger.info(
                 "request_completed",

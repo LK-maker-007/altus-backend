@@ -1,44 +1,3 @@
-"""
-Management command: seed_demo_data
-
-PURPOSE:
-  Populates the local dev database with a realistic apartment complex, residents,
-  facilities, bookings, visitors, maintenance tickets, and announcements.
-  Gives you a fully functional Yali app experience from the first launch.
-
-WHY A MANAGEMENT COMMAND (not a fixture/factory):
-  Django fixtures go stale and break on model changes.
-  pytest factories are rolled back after each test.
-  This command creates persistent, real DB rows the mobile app can use.
-
-WHAT IT CREATES:
-  1. Complex    — "Prestige Lakeside Habitat" (slug: prestige-lakeside)
-  2. Plan       — "Starter" plan + active Subscription
-  3. Units      — A-Block (101–106), B-Block (201–205) = 11 units
-  4. Users      — 1 resident per unit (11 total), 1 security guard, 1 complex_admin
-  5. Facilities — 6 amenities: Gym, Pool, Clubhouse, Play Area, Library, Court
-  6. Bookings   — 3 upcoming confirmed bookings for the demo resident
-  7. Visitors   — 2 visitor passes (1 pending, 1 arrived) for demo resident
-  8. Tickets    — 3 maintenance tickets (open, in_progress, resolved)
-  9. Announ.    — 3 announcements (general, event, power_outage)
-
-DEMO RESIDENT:
-  Phone:    +919876543210
-  Name:     Arjun Sharma
-  Unit:     A-101, Prestige Lakeside Habitat
-  Password: (OTP only — SMS_PROVIDER=mock, check logs for OTP)
-
-SAFETY:
-  - Idempotent: skips existing rows, only creates missing ones
-  - Only runs when DEBUG=True or --force
-  - Only runs when SMS_PROVIDER=mock (refuses real Twilio)
-
-USAGE:
-  python manage.py seed_demo_data
-  python manage.py seed_demo_data --reset   # wipe + recreate everything
-  python manage.py seed_demo_data --dry-run # print what would be created
-"""
-
 from __future__ import annotations
 
 import uuid
@@ -65,14 +24,12 @@ from apps.maintenance.models import MaintenanceTicket, TicketCategory, TicketSta
 from apps.users.models import User, UserRole
 from apps.visitors.models import Visitor, VisitorStatus
 
-# ── ANSI colours ──────────────────────────────────────────────────────────────
 GREEN = "\033[92m"
 YELLOW = "\033[93m"
 CYAN = "\033[96m"
 RESET = "\033[0m"
 BOLD = "\033[1m"
 
-# ── Demo Data Definitions ──────────────────────────────────────────────────────
 
 COMPLEX_SLUG = "prestige-lakeside"
 
@@ -116,7 +73,7 @@ FACILITIES_SPEC = [
     {
         "name": "Children's Play Area",
         "category": FacilityCategory.CHILDREN_FAMILY,
-        "capacity": None,  # open-access
+        "capacity": None,
         "requires_booking": False,
         "operating_hours": {
             "start": "07:00",
@@ -134,7 +91,7 @@ FACILITIES_SPEC = [
             "start": "08:00",
             "end": "20:00",
             "slot_duration_minutes": 60,
-            "days": [0, 1, 2, 3, 4],  # Mon–Fri only
+            "days": [0, 1, 2, 3, 4],
         },
     },
     {
@@ -152,27 +109,21 @@ FACILITIES_SPEC = [
 ]
 
 UNITS_SPEC = [
-    # A-Block
     {"unit_number": "101", "building_block": "A", "floor": 1},
     {"unit_number": "102", "building_block": "A", "floor": 1},
     {"unit_number": "201", "building_block": "A", "floor": 2},
     {"unit_number": "202", "building_block": "A", "floor": 2},
     {"unit_number": "301", "building_block": "A", "floor": 3},
     {"unit_number": "302", "building_block": "A", "floor": 3},
-    # B-Block
     {"unit_number": "101", "building_block": "B", "floor": 1},
     {"unit_number": "102", "building_block": "B", "floor": 1},
     {"unit_number": "201", "building_block": "B", "floor": 2},
     {"unit_number": "301", "building_block": "B", "floor": 3},
     {"unit_number": "401", "building_block": "B", "floor": 4},
-    # C-Block — intentionally UNREGISTERED (no resident assigned)
-    # Use this unit to register your real phone via the app's Register flow.
-    # After registration, this unit gets linked to your account.
     {"unit_number": "101", "building_block": "C", "floor": 1},
 ]
 
 RESIDENTS_SPEC = [
-    # Unit 0 = A-101 = the primary demo resident
     {"phone": "+919876543210", "name": "Arjun Sharma"},
     {"phone": "+919876543211", "name": "Priya Krishnamurthy"},
     {"phone": "+919876543212", "name": "Rahul Mehta"},
@@ -256,12 +207,11 @@ class Command(BaseCommand):
             ),
         )
 
-    def handle(self, *args: object, **options: object) -> None:  # type: ignore[override]
-        dry_run: bool = options["dry_run"]  # type: ignore[assignment]
-        reset: bool = options["reset"]  # type: ignore[assignment]
-        force: bool = options["force"]  # type: ignore[assignment]
+    def handle(self, *args: object, **options: object) -> None:
+        dry_run: bool = options["dry_run"]
+        reset: bool = options["reset"]
+        force: bool = options["force"]
 
-        # ── Safety guards ─────────────────────────────────────────────────────
         if not settings.DEBUG and not force:
             raise CommandError(
                 "seed_demo_data refuses to run when DEBUG=False. "
@@ -289,43 +239,29 @@ class Command(BaseCommand):
 
             self._seed(force=force)
 
-            # Seed the real phone AFTER the rest of the demo data so C-101 exists.
-            phone: str | None = options["phone"]  # type: ignore[assignment]
+            phone: str | None = options["phone"]
             if phone:
                 self._seed_real_phone(phone)
 
         self.stdout.write(f"\n{BOLD}{GREEN}✓ Demo data seeded successfully!{RESET}\n")
         self._print_credentials()
 
-    # ── Reset ─────────────────────────────────────────────────────────────────
-
     def _reset_demo_data(self) -> None:
         self.stdout.write(f"  {YELLOW}↺ Resetting existing demo data…{RESET}")
         complex_qs = Complex.objects.filter(slug=COMPLEX_SLUG)
         if complex_qs.exists():
-            # CASCADE via RESTRICT: must delete in dependency order
             complex_obj = complex_qs.first()
             assert complex_obj is not None
-            # Tickets
             MaintenanceTicket.unscoped.filter(complex=complex_obj).delete()
-            # Visitors
             Visitor.unscoped.filter(complex=complex_obj).delete()
-            # Bookings
             Booking.unscoped.filter(complex=complex_obj).delete()
-            # Announcements
             Announcement.unscoped.filter(complex=complex_obj).delete()
-            # Facilities
             Facility.unscoped.filter(complex=complex_obj).delete()
-            # Users (residents, security, admin)
             User.objects.filter(complex=complex_obj).delete()
-            # Units
             Unit.objects.filter(complex=complex_obj).delete()
-            # Subscription + Plan
             Subscription.objects.filter(complex=complex_obj).delete()
             complex_obj.delete()
         self.stdout.write(f"  {GREEN}✓ Reset complete{RESET}")
-
-    # ── Main seed orchestrator ─────────────────────────────────────────────────
 
     def _seed(self, *, force: bool) -> None:
         complex_obj = self._seed_complex()
@@ -338,8 +274,6 @@ class Command(BaseCommand):
         self._seed_visitors(complex_obj, residents[0], units[0])
         self._seed_tickets(complex_obj, residents[0], units[0])
         self._seed_announcements(complex_obj, admin_user)
-
-    # ── 1. Complex ────────────────────────────────────────────────────────────
 
     def _seed_complex(self) -> Complex:
         obj, created = Complex.objects.get_or_create(
@@ -355,15 +289,13 @@ class Command(BaseCommand):
         self._log("Complex", obj.name, created)
         return obj
 
-    # ── 2. Plan + Subscription ────────────────────────────────────────────────
-
     def _seed_subscription(self, complex_obj: Complex) -> None:
         plan, plan_created = Plan.objects.get_or_create(
             name="Starter",
             defaults={
                 "max_units": 50,
-                "price_monthly_inr": 99900,  # ₹999 in paise
-                "price_annual_inr": 999900,  # ₹9999 in paise
+                "price_monthly_inr": 99900,
+                "price_annual_inr": 999900,
                 "features": {"maintenance": True, "visitors": True, "bookings": True},
                 "is_active": True,
             },
@@ -383,8 +315,6 @@ class Command(BaseCommand):
         )
         self._log("Subscription", f"{complex_obj.name} → {plan.name}", sub_created)
 
-    # ── 3. Units ──────────────────────────────────────────────────────────────
-
     def _seed_units(self, complex_obj: Complex) -> list[Unit]:
         units = []
         for spec in UNITS_SPEC:
@@ -399,8 +329,6 @@ class Command(BaseCommand):
             )
             units.append(unit)
         return units
-
-    # ── 4. Residents ──────────────────────────────────────────────────────────
 
     def _seed_residents(self, complex_obj: Complex, units: list[Unit]) -> list[User]:
         residents = []
@@ -419,7 +347,6 @@ class Command(BaseCommand):
                 user.set_unusable_password()
                 user.save(update_fields=["password"])
 
-            # Register resident → unit
             unit = units[i]
             if unit.registered_resident_id is None:
                 unit.registered_resident = user
@@ -428,8 +355,6 @@ class Command(BaseCommand):
             self._log("Resident", f"{spec['name']} ({spec['phone']})", created)
             residents.append(user)
         return residents
-
-    # ── 5. Staff users ────────────────────────────────────────────────────────
 
     def _seed_staff_users(self, complex_obj: Complex) -> User:
         security, created = User.objects.get_or_create(
@@ -457,22 +382,7 @@ class Command(BaseCommand):
         self._log("Complex Admin", "Admin Kumar (+919000022222)", created)
         return admin
 
-    # ── 5a. Real phone account ─────────────────────────────────────────────────
-
     def _seed_real_phone(self, phone: str) -> None:
-        """
-        Seeds the caller's real phone number as a resident on unit C-101.
-
-        WHY separate from _seed_residents: _seed_residents only seeds demo phones
-        (+919876543210 etc). When SMS_PROVIDER=twilio, the developer needs their
-        REAL phone registered so they can receive a genuine OTP and log in.
-
-        WHY C-101: all A/B block units are pre-registered to demo residents.
-        C-101 is intentionally left unregistered for exactly this use case.
-
-        USAGE:
-            python manage.py seed_demo_data --phone +919876543210 --force
-        """
         complex_obj = Complex.objects.get(slug=COMPLEX_SLUG)
 
         unit = Unit.objects.get(
@@ -484,11 +394,11 @@ class Command(BaseCommand):
         user, created = User.objects.get_or_create(
             phone_number=phone,
             defaults={
-                "name": "",  # Empty until CompleteProfile submitted
+                "name": "",
                 "role": UserRole.RESIDENT,
                 "complex": complex_obj,
                 "is_active": True,
-                "is_profile_complete": False,  # Forces CompleteProfile screen after OTP
+                "is_profile_complete": False,
             },
         )
         if created:
@@ -516,8 +426,6 @@ class Command(BaseCommand):
             f"  Log in via the app → you'll be prompted to complete your profile.\n"
         )
 
-    # ── 6. Facilities ─────────────────────────────────────────────────────────
-
     def _seed_facilities(self, complex_obj: Complex) -> list[Facility]:
         facilities = []
         for spec in FACILITIES_SPEC:
@@ -536,8 +444,6 @@ class Command(BaseCommand):
             facilities.append(facility)
         return facilities
 
-    # ── 7. Bookings ───────────────────────────────────────────────────────────
-
     def _seed_bookings(
         self,
         complex_obj: Complex,
@@ -545,43 +451,31 @@ class Command(BaseCommand):
         facilities: list[Facility],
     ) -> None:
         bookable = [f for f in facilities if f.requires_booking]
-        # WHY truncate to the hour: the exclusion constraint is on tstzrange.
-        # Using now() directly means each seed run produces a slightly different
-        # slot_start, causing the new slot to overlap the previously seeded slot
-        # and violating the booking_no_overlap_confirmed constraint.
-        # Truncating to the next full hour makes the slot_start deterministic
-        # within a given day — two runs on the same day produce the same slots.
         now = tz.now()
         base = now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
 
         booking_specs = [
             {
-                "facility": bookable[0],  # Gymnasium
-                "slot_start": base + timedelta(days=1, hours=6),  # tomorrow +6h
+                "facility": bookable[0],
+                "slot_start": base + timedelta(days=1, hours=6),
                 "slot_end": base + timedelta(days=1, hours=7),
                 "status": BookingStatus.CONFIRMED,
             },
             {
-                "facility": bookable[1],  # Swimming Pool
-                "slot_start": base + timedelta(days=2, hours=5),  # day+2 +5h
+                "facility": bookable[1],
+                "slot_start": base + timedelta(days=2, hours=5),
                 "slot_end": base + timedelta(days=2, hours=6),
                 "status": BookingStatus.CONFIRMED,
             },
             {
-                "facility": bookable[2],  # Clubhouse
-                "slot_start": base + timedelta(days=5, hours=17),  # day+5 +17h
+                "facility": bookable[2],
+                "slot_start": base + timedelta(days=5, hours=17),
                 "slot_end": base + timedelta(days=5, hours=19),
                 "status": BookingStatus.CONFIRMED,
             },
         ]
 
         for spec in booking_specs:
-            # WHY exists() check not get_or_create: the exclusion constraint key
-            # is a PostgreSQL tstzrange — Django's get_or_create uses an exact
-            # slot_start match, which would create a duplicate row on a new run
-            # (different microsecond) triggering IntegrityError.
-            # Checking "any confirmed booking for this resident+facility" is the
-            # correct idempotency guard for demo data.
             already_exists = Booking.unscoped.filter(
                 complex=complex_obj,
                 resident=resident,
@@ -612,8 +506,6 @@ class Command(BaseCommand):
                 True,
             )
 
-    # ── 8. Visitors ───────────────────────────────────────────────────────────
-
     def _seed_visitors(
         self,
         complex_obj: Complex,
@@ -621,7 +513,6 @@ class Command(BaseCommand):
         unit: Unit,
     ) -> None:
         now = tz.now()
-        # WHY truncate to hour: same reason as bookings — stable across same-day reruns.
         base = now.replace(minute=0, second=0, microsecond=0)
 
         visitors_spec = [
@@ -630,10 +521,6 @@ class Command(BaseCommand):
                 "visitor_phone": "+919123456789",
                 "expected_from": base + timedelta(hours=3),
                 "expected_until": base + timedelta(hours=6),
-                # WHY deterministic OTP: hardcoded OTP violates the unique constraint
-                # on re-run because the get_or_create lookup key changed (expected_from).
-                # Using a 6-digit hash of the name is stable across runs and unique
-                # enough for demo data (collision risk is negligible at 2 visitors).
                 "otp_code": "482917",
                 "status": VisitorStatus.PENDING,
             },
@@ -649,11 +536,6 @@ class Command(BaseCommand):
         ]
 
         for spec in visitors_spec:
-            # WHY visitor_name as stable key (not expected_from):
-            #   expected_from is now()-relative — it changes on every run, causing
-            #   get_or_create to attempt a new INSERT which hits the otp_code unique
-            #   constraint (same hardcoded OTP, different expected_from).
-            #   visitor_name is stable across runs for demo data.
             already_exists = Visitor.unscoped.filter(
                 complex=complex_obj,
                 registered_by=resident,
@@ -677,8 +559,6 @@ class Command(BaseCommand):
                 arrived_at=spec.get("arrived_at"),
             )
             self._log("Visitor", spec["visitor_name"], True)
-
-    # ── 9. Maintenance Tickets ────────────────────────────────────────────────
 
     def _seed_tickets(
         self,
@@ -722,8 +602,6 @@ class Command(BaseCommand):
             )
             self._log("Ticket", f"[{spec['status']}] {spec['title'][:50]}", created)
 
-    # ── 10. Announcements ─────────────────────────────────────────────────────
-
     def _seed_announcements(self, complex_obj: Complex, admin: User) -> None:
         for spec in ANNOUNCEMENTS_SPEC:
             _, created = Announcement.unscoped.get_or_create(
@@ -737,8 +615,6 @@ class Command(BaseCommand):
                 },
             )
             self._log("Announcement", spec["title"][:60], created)
-
-    # ── Helpers ───────────────────────────────────────────────────────────────
 
     def _log(self, kind: str, label: str, created: bool) -> None:
         icon = f"{GREEN}✓{RESET}" if created else f"{YELLOW}↷{RESET}"

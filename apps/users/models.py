@@ -42,14 +42,6 @@ class UserManager(BaseUserManager["User"]):
     def create_superuser(
         self, phone_number: str, password: str | None = None, **extra_fields: object
     ) -> User:
-        # password accepted for Django compat but never stored — OTP-only auth.
-        #
-        # WHY fully explicit args (not **extra_fields unpack):
-        #   create_user has explicit typed params: role: str, complex_obj:
-        #   Complex | None. Unpacking **extra_fields: dict[str, object] passes
-        #   params — mypy correctly flags this as arg-type. We extract each field
-        #   explicitly so every argument is statically typed. REQUIRED_FIELDS=[] means
-        #   Django's createsuperuser never sends additional fields beyond password.
         role = str(extra_fields.get("role", UserRole.PLATFORM_ADMIN))
         is_staff = bool(extra_fields.get("is_staff", True))
         is_superuser = bool(extra_fields.get("is_superuser", True))
@@ -63,7 +55,6 @@ class UserManager(BaseUserManager["User"]):
 
 class User(AbstractBaseUser, PermissionsMixin):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    # Null only for platform_admin — they are not scoped to a single complex.
     complex = models.ForeignKey(
         Complex,
         on_delete=models.RESTRICT,
@@ -76,7 +67,6 @@ class User(AbstractBaseUser, PermissionsMixin):
     is_profile_complete = models.BooleanField(default=False)
     expo_push_token = models.CharField(max_length=200, blank=True, default="")
     vehicle_registrations = models.JSONField(default=list)
-    # OTP lockout — reset to 0 on successful verify, locked for 15 min after 3 failures
     otp_attempt_count = models.SmallIntegerField(default=0)
     otp_locked_until = models.DateTimeField(null=True, blank=True)
     is_active = models.BooleanField(default=True)
@@ -91,11 +81,8 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     class Meta:
         indexes: ClassVar[list[models.Index]] = [
-            # Lookup by complex + role — used by permission checks and admin views
             models.Index(fields=["complex", "role"]),
-            # Push notification fan-out for announcements
             models.Index(fields=["complex", "is_profile_complete"]),
-            # unit→resident index is on Unit.registered_resident (related_name="unit")
         ]
         constraints: ClassVar[list[models.BaseConstraint]] = [
             models.CheckConstraint(
@@ -117,7 +104,6 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     @property
     def is_complex_admin(self) -> bool:
-        # complex_admin inherits all platform_admin capabilities for their complex
         return self.role in (UserRole.COMPLEX_ADMIN, UserRole.PLATFORM_ADMIN)
 
     @property
@@ -126,20 +112,7 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     @property
     def unit_id(self) -> UUID | None:
-        """Unit PK via Unit.registered_resident reverse accessor (related_name='unit').
-
-        Unit.registered_resident is the authoritative FK (Unit→User per ER diagram).
-        User.unit is the Django-generated reverse accessor — no FK column on User.
-        Returns None for platform_admin, complex_admin, and security accounts.
-        Catches RelatedObjectDoesNotExist (not importable here — circular import).
-        """
         try:
-            return self.unit.pk  # reverse OneToOne accessor; exception caught below
+            return self.unit.pk
         except AttributeError:
-            # WHY AttributeError not Exception (audit §Minor §Bare except):
-            #   Django generates RelatedObjectDoesNotExist as a subclass of
-            #   AttributeError (set on the descriptor via __set_name__). It is not
-            #   importable without creating a circular dependency chain. AttributeError
-            #   is the narrowest correct catch — it does NOT swallow DB connection
-            #   failures, MemoryError, or other unexpected exceptions.
             return None

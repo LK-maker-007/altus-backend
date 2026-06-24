@@ -1,41 +1,5 @@
 from __future__ import annotations
 
-"""
-Row-Level Security (RLS) integration tests.
-
-These tests verify that the PostgreSQL RLS policies installed by migration
-0003_rls_policies ACTUALLY enforce tenant isolation at the DB level —
-independent of the application-layer ComplexScopedManager.
-
-Why these tests are different from unit tests:
-  Unit tests mock the ORM / manager layer. These tests bypass all ORM filtering
-  and execute RAW SQL directly on the DB to prove that even a completely
-  unrestricted query is blocked by the DB policy.
-
-Test architecture (Staff L6 requirement):
-  The test DB connects as 'yali_user' which IS a superuser in this Docker setup
-  (confirmed via pg_user). Superusers always bypass RLS, so RLS enforcement
-  tests must use SET ROLE to switch to a non-superuser role.
-
-  Strategy:
-    1. As superuser (yali_user): CREATE ROLE yali_rls_tester (no superuser, no BYPASSRLS).
-    2. GRANT SELECT, INSERT, UPDATE, DELETE on tenant tables to yali_rls_tester.
-    3. SET ROLE yali_rls_tester — now RLS is fully enforced.
-    4. Execute raw SQL — RLS applies because yali_rls_tester is not a superuser.
-    5. RESET ROLE — back to yali_user for cleanup.
-
-  This matches production: the web app role is NOT a superuser.
-
-Three properties verified:
-  1. FAIL-CLOSED: No GUC set → raw SELECT returns 0 rows (policy blocks all).
-  2. CORRECT-TENANT: GUC set to complex_a → raw SELECT returns only complex_a rows.
-  3. CROSS-TENANT-BLOCKED: GUC set to complex_a → raw SELECT on complex_b → 0 rows.
-
-Source: ADR-012, docs/adr/ADR-012-postgres-rls.md
-Research: docs/research/maang-engineering-standards.md §12
-Official: https://www.postgresql.org/docs/current/ddl-rowsecurity.html (PG18)
-"""
-
 from typing import Any
 
 import pytest
@@ -43,8 +7,6 @@ from django.db import connection, transaction
 
 from apps.bookings.models import BookingStatus
 
-# Role created per test session for RLS enforcement testing.
-# This role is non-superuser so RLS policies apply to it.
 _RLS_TESTER_ROLE = "yali_rls_tester"
 
 _TENANT_TABLES = [
@@ -56,13 +18,11 @@ _TENANT_TABLES = [
     "lost_found_lostfoundreport",
     "maintenance_maintenanceticket",
     "packages_package",
-    "users_user",
     "visitors_visitor",
 ]
 
 
 def _execute_raw(sql: str, params: list[Any] | None = None) -> list[tuple[Any, ...]]:
-    """Execute raw SQL as the current role. Used for catalog/metadata queries."""
     with connection.cursor() as cursor:
         cursor.execute(sql, params or [])
         return cursor.fetchall()
@@ -73,28 +33,13 @@ def _rls_select(
     guc_value: str | None,
     params: list[Any] | None = None,
 ) -> list[tuple[Any, ...]]:
-    """
-    Execute a SELECT as yali_rls_tester (non-superuser) with a specific GUC.
-
-    The RLS tester role is not a superuser, so RLS policies are fully enforced.
-    SET LOCAL and SELECT are in the same cursor to ensure GUC persistence.
-
-    Args:
-        sql: The SELECT statement to execute.
-        guc_value: The complex_id UUID string, or None/''/empty for fail-closed test.
-        params: Optional query parameters for the SELECT.
-    """
     rows: list[tuple[Any, ...]] = []
     with transaction.atomic():
         with connection.cursor() as cursor:
-            # Switch to the non-superuser RLS tester role
             cursor.execute(f"SET LOCAL ROLE {_RLS_TESTER_ROLE}")
-            # Set GUC within the same cursor/transaction
             if guc_value:
                 cursor.execute("SET LOCAL app.current_complex = %s", [guc_value])
             else:
-                # No GUC — test fail-closed: '' → current_setting returns ''
-                # complex_id::text = '' → false → 0 rows
                 cursor.execute("SET LOCAL app.current_complex = ''")
             cursor.execute(sql, params or [])
             rows = cursor.fetchall()
@@ -103,26 +48,16 @@ def _rls_select(
 
 @pytest.fixture(scope="session")
 def rls_tester_role(django_db_setup: Any, django_db_blocker: Any) -> None:
-    """
-    Session-scoped fixture: create yali_rls_tester role (non-superuser).
-    Grant SELECT/INSERT/UPDATE/DELETE on all tenant tables.
-    Drop on session teardown.
-
-    This role is the "simulated production app user" — no SUPERUSER, no BYPASSRLS.
-    """
     with django_db_blocker.unblock():
         with transaction.atomic():
             with connection.cursor() as cursor:
-                # Create role (DROP IF EXISTS for idempotency across test re-runs)
                 cursor.execute(f"DROP ROLE IF EXISTS {_RLS_TESTER_ROLE}")
                 cursor.execute(
                     f"CREATE ROLE {_RLS_TESTER_ROLE} "
                     f"NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS LOGIN "
                     f"PASSWORD 'rls_test_only'"
                 )
-                # Grant usage on schema
                 cursor.execute(f"GRANT USAGE ON SCHEMA public TO {_RLS_TESTER_ROLE}")
-                # Grant DML on all tenant tables
                 for table in _TENANT_TABLES:
                     cursor.execute(
                         f"GRANT SELECT, INSERT, UPDATE, DELETE ON {table} "
@@ -131,10 +66,8 @@ def rls_tester_role(django_db_setup: Any, django_db_blocker: Any) -> None:
 
     yield
 
-    # Teardown: revoke grants and drop the role
     with django_db_blocker.unblock():
         with connection.cursor() as cursor:
-            # Must revoke privileges before dropping the role
             cursor.execute(f"REASSIGN OWNED BY {_RLS_TESTER_ROLE} TO yali_user")
             cursor.execute(f"DROP OWNED BY {_RLS_TESTER_ROLE}")
             cursor.execute(f"DROP ROLE IF EXISTS {_RLS_TESTER_ROLE}")
@@ -142,10 +75,8 @@ def rls_tester_role(django_db_setup: Any, django_db_blocker: Any) -> None:
 
 @pytest.mark.django_db(transaction=True)
 class TestRLSMigrationApplied:
-    """Verify the RLS migration was applied correctly to the test database."""
 
     def test_rls_enabled_on_bookings(self) -> None:
-        """ALTER TABLE ... ENABLE ROW LEVEL SECURITY was applied."""
         rows = _execute_raw(
             "SELECT relrowsecurity FROM pg_class WHERE relname = 'bookings_booking'"
         )
@@ -157,9 +88,6 @@ class TestRLSMigrationApplied:
         )
 
     def test_force_rls_enabled_on_bookings(self) -> None:
-        """ALTER TABLE ... FORCE ROW LEVEL SECURITY was applied.
-        Without FORCE, the table owner bypasses the policy.
-        """
         rows = _execute_raw(
             "SELECT relforcerowsecurity FROM pg_class WHERE relname = 'bookings_booking'"
         )
@@ -169,7 +97,6 @@ class TestRLSMigrationApplied:
         )
 
     def test_policy_exists_on_all_tenant_tables(self) -> None:
-        """complex_isolation policy must exist on all 10 tenant-scoped tables."""
         rows = _execute_raw(
             "SELECT tablename FROM pg_policies "
             "WHERE policyname = 'complex_isolation' "
@@ -184,7 +111,6 @@ class TestRLSMigrationApplied:
             )
 
     def test_rls_enabled_and_forced_on_all_tenant_tables(self) -> None:
-        """ENABLE + FORCE ROW LEVEL SECURITY must be set on all 10 tables."""
         rows = _execute_raw(
             "SELECT relname FROM pg_class "
             "WHERE relname = ANY(%s) AND relrowsecurity = TRUE AND relforcerowsecurity = TRUE",
@@ -200,20 +126,10 @@ class TestRLSMigrationApplied:
 
 @pytest.mark.django_db(transaction=True)
 class TestRLSFailClosed:
-    """
-    FAIL-CLOSED: When no GUC is set (no tenant context), the DB must
-    return ZERO rows on any raw query — not all rows.
-
-    Tests execute as yali_rls_tester (non-superuser) so RLS is enforced.
-    """
 
     def test_raw_query_without_guc_returns_zero_rows(
         self, rls_tester_role: Any, complex_a: Any, unit_a: Any, resident: Any
     ) -> None:
-        """
-        With no GUC set: raw SELECT on bookings_booking returns 0 rows
-        even though rows exist in the table.
-        """
         from apps.bookings.models import Booking
         from tests.factories.booking_factory import BookingFactory
 
@@ -226,7 +142,7 @@ class TestRLSFailClosed:
 
         rows = _rls_select(
             "SELECT id FROM bookings_booking",
-            guc_value=None,  # no tenant context — fail-closed
+            guc_value=None,
         )
 
         assert len(rows) == 0, (
@@ -234,37 +150,26 @@ class TestRLSFailClosed:
             "Expected 0. A developer forgetting to set tenant context would see ALL tenants' data."
         )
 
-    def test_raw_query_without_guc_returns_zero_on_users(
-        self, rls_tester_role: Any, complex_a: Any, resident: Any
+    def test_users_user_intentionally_not_under_rls(
+        self, complex_a: Any, resident: Any
     ) -> None:
-        """Same fail-closed test on users_user — the most sensitive table."""
-        from apps.users.models import User
-
-        # User model uses a custom manager — verify row exists via objects.all()
-        assert User.objects.filter(complex=complex_a).count() >= 1
-
-        rows = _rls_select(
-            "SELECT id FROM users_user WHERE complex_id IS NOT NULL",
-            guc_value=None,
+        rows = _execute_raw(
+            "SELECT relrowsecurity, relforcerowsecurity "
+            "FROM pg_class WHERE relname = 'users_user'"
         )
-
-        assert len(rows) == 0, (
-            f"RLS FAIL-CLOSED VIOLATION on users_user: returned {len(rows)} rows "
-            "with no GUC. PII leak risk."
+        assert rows, "users_user not found in pg_class"
+        assert rows[0][0] is False and rows[0][1] is False, (
+            "users_user must NOT be under RLS (migration 0006_remove_users_rls). "
+            "RLS on the auth table breaks the login bootstrap and null-complex admins."
         )
 
 
 @pytest.mark.django_db(transaction=True)
 class TestRLSCorrectTenantAccess:
-    """
-    CORRECT-TENANT: GUC = complex_a → raw SQL returns complex_a rows only.
-    CROSS-TENANT-BLOCKED: GUC = complex_b → complex_a data invisible.
-    """
 
     def test_raw_query_with_correct_guc_returns_rows(
         self, rls_tester_role: Any, complex_a: Any, unit_a: Any, resident: Any
     ) -> None:
-        """With GUC = complex_a.id: raw SELECT returns that complex's rows."""
         from tests.factories.booking_factory import BookingFactory
 
         BookingFactory(
@@ -296,7 +201,6 @@ class TestRLSCorrectTenantAccess:
         unit_a: Any,
         resident: Any,
     ) -> None:
-        """GUC = complex_b → complex_a data is invisible (cross-tenant blocked)."""
         from tests.factories.booking_factory import BookingFactory
 
         BookingFactory(
@@ -320,13 +224,8 @@ class TestRLSCorrectTenantAccess:
     def test_cross_tenant_write_blocked_by_with_check(
         self, rls_tester_role: Any, complex_a: Any, complex_b: Any
     ) -> None:
-        """
-        WITH CHECK: Writing a row with complex_id ≠ GUC must be blocked.
-        GUC = complex_b, but INSERT complex_id = complex_a → rejected.
-        """
         import uuid
 
-        # Attempt INSERT of complex_a data while GUC = complex_b
         try:
             with transaction.atomic():
                 with connection.cursor() as cursor:
@@ -366,14 +265,10 @@ class TestRLSCorrectTenantAccess:
 
 @pytest.mark.django_db(transaction=True)
 class TestRLSDoesNotBlockLegitimateAccess:
-    """
-    Sanity check: correct GUC must never over-block legitimate queries.
-    """
 
     def test_correct_guc_allows_own_tenant_data(
         self, rls_tester_role: Any, complex_a: Any, unit_a: Any, resident: Any
     ) -> None:
-        """GUC = complex_a → can SELECT own bookings."""
         from tests.factories.booking_factory import BookingFactory
 
         booking = BookingFactory(complex=complex_a, status=BookingStatus.HOLD)
@@ -392,7 +287,6 @@ class TestRLSDoesNotBlockLegitimateAccess:
     def test_no_guc_blocks_even_own_data(
         self, rls_tester_role: Any, complex_a: Any, unit_a: Any, resident: Any
     ) -> None:
-        """No GUC → zero rows even for own complex data (fail-closed wins)."""
         from tests.factories.booking_factory import BookingFactory
 
         BookingFactory(

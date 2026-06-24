@@ -29,7 +29,6 @@ from apps.users.permissions import IsResident
 
 logger = structlog.get_logger(__name__)
 
-# Tuples: immutable → no RUF012; Sequence satisfies DRF stubs
 _RESIDENT: Sequence[type[BasePermission]] = (IsAuthenticated, IsResident)
 _AUTH: Sequence[type[BasePermission]] = (IsAuthenticated,)
 _BOOKING_HOLD_THROTTLES: Sequence[type[BaseThrottle]] = (BookingHoldRateThrottle,)
@@ -44,15 +43,6 @@ def _get_resident_bookings(resident: User) -> models.QuerySet[Booking]:
 
 
 class BookingHoldView(APIView):
-    """POST /bookings/hold/ — create a 5-minute hold.
-
-    WHY BookingHoldRateThrottle (10/minute per resident):
-      Without a throttle, an automated client can hammer this endpoint to hold
-      every available slot across all facilities, denying access to all other
-      residents. The GiST exclusion constraint is the data-integrity backstop;
-      this throttle is the abuse-prevention layer.
-      Source: audit §MEDIUM §BookingHoldView no throttle.
-    """
 
     permission_classes = _RESIDENT
     throttle_classes = _BOOKING_HOLD_THROTTLES
@@ -77,7 +67,6 @@ class BookingHoldView(APIView):
 
 
 class BookingConfirmView(APIView):
-    """POST /bookings/{id}/confirm/ — convert hold to confirmed."""
 
     permission_classes = _RESIDENT
 
@@ -96,9 +85,6 @@ class BookingConfirmView(APIView):
 
 
 class BookingCancelView(APIView):
-    """POST /bookings/{id}/cancel/ — cancel hold or confirmed booking.
-    Ownership enforced in BookingService; all authenticated roles allowed here.
-    """
 
     permission_classes = _AUTH
 
@@ -139,18 +125,6 @@ class BookingCancelView(APIView):
 
 
 class BookingListView(APIView):
-    """GET /bookings/ — list authenticated resident's bookings with cursor pagination.
-
-    WHY CursorPagination not PageNumberPagination:
-      Cursor is stable under concurrent writes (new bookings don't shift pages).
-      A resident creating a new booking while paginating wouldn't see duplicates
-      or miss items. PageNumber pagination is unstable under live data.
-      Source: DRF docs; DEFAULT_PAGINATION_CLASS = CursorPagination in base settings.
-
-    WHY ordering="-slot_start" (not created_at):
-      Residents expect bookings sorted by appointment time, not submission order.
-      Most recent upcoming booking appears first.
-    """
 
     permission_classes = _RESIDENT
 
@@ -169,7 +143,6 @@ class BookingListView(APIView):
 
 
 class BookingDetailView(APIView):
-    """GET /bookings/{id}/ — single booking detail."""
 
     permission_classes = _RESIDENT
 

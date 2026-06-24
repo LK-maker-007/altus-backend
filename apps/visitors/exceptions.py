@@ -4,7 +4,6 @@ from rest_framework.exceptions import APIException
 
 
 class VisitorError(APIException):
-    """Base for all visitor domain errors."""
 
     status_code = 400
     default_code = "VISITOR_ERROR"
@@ -12,7 +11,6 @@ class VisitorError(APIException):
 
 
 class VisitorOTPExpiredError(APIException):
-    """Visitor pass is outside its valid time window (US-021)."""
 
     status_code = 400
     default_code = "VISITOR_OTP_EXPIRED"
@@ -20,7 +18,6 @@ class VisitorOTPExpiredError(APIException):
 
 
 class VisitorOTPUsedError(APIException):
-    """Visitor pass has already been consumed (status = arrived)."""
 
     status_code = 400
     default_code = "VISITOR_OTP_USED"
@@ -28,7 +25,6 @@ class VisitorOTPUsedError(APIException):
 
 
 class VisitorNotFoundError(APIException):
-    """OTP not found in this complex — generic message, reveals nothing."""
 
     status_code = 404
     default_code = "NOT_FOUND"

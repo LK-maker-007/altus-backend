@@ -8,7 +8,6 @@ from tests.factories.complex_factory import ComplexFactory
 
 
 class FacilityFactory(DjangoModelFactory):
-    """Factory for bookable Facility instances."""
 
     class Meta:
         model = Facility
@@ -22,6 +21,6 @@ class FacilityFactory(DjangoModelFactory):
         "start": "06:00",
         "end": "22:00",
         "slot_duration_minutes": 60,
-        "days": [0, 1, 2, 3, 4, 5, 6],  # Monday-Sunday
+        "days": [0, 1, 2, 3, 4, 5, 6],
     }
     is_active = True

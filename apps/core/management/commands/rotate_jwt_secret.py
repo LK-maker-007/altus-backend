@@ -1,26 +1,3 @@
-"""
-apps/core/management/commands/rotate_jwt_secret.py
-
-Zero-downtime JWT secret rotation assistant.
-
-Usage:
-    python manage.py rotate_jwt_secret          # Generate new key + print instructions
-    python manage.py rotate_jwt_secret --verify  # Verify current secret meets minimum entropy
-
-WHY a management command (not a script):
-  Runs inside Django's settings context, so it can:
-  - Read the current JWT_SECRET_KEY value directly from settings
-  - Check minimum entropy against the configured value
-  - Be run on the production server via `manage.py` without importing
-    settings separately.
-
-WHY it does NOT modify .env automatically:
-  Automated secret rotation that modifies environment files is a security
-  anti-pattern — it assumes write access to the .env file, bypasses
-  review/audit, and could introduce race conditions in multi-server deploys.
-  The operator must execute the steps with full understanding and audit trail.
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -29,7 +6,7 @@ import secrets
 from django.conf import settings
 from django.core.management.base import BaseCommand
 
-_MIN_KEY_BYTES = 32  # 256-bit minimum for HS256 per RFC 7518 §3.2
+_MIN_KEY_BYTES = 32
 
 
 class Command(BaseCommand):
@@ -53,7 +30,6 @@ class Command(BaseCommand):
         current_key: str = settings.JWT_SECRET_KEY
         previous_key: str = settings.JWT_PREVIOUS_SECRET_KEY
 
-        # ── Verify current key entropy ─────────────────────────────────────────
         current_key_bytes = len(current_key.encode())
         current_ok = current_key_bytes >= _MIN_KEY_BYTES
 
@@ -103,12 +79,6 @@ class Command(BaseCommand):
                 raise SystemExit(1)
             return
 
-        # ── Generate new key ───────────────────────────────────────────────────
-        # secrets.token_urlsafe(32):
-        #   - 32 bytes = 256 bits of cryptographically secure random data
-        #   - URL-safe base64 encoding: no characters that break .env files
-        #   - Backed by os.urandom() — cryptographically secure PRNG
-        #   Result: 43-character string with 256-bit entropy
         new_key = secrets.token_urlsafe(32)
 
         self.stdout.write("")

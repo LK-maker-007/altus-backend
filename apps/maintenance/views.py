@@ -28,18 +28,11 @@ _RESIDENT: Sequence[type[BasePermission]] = (IsAuthenticated, IsResident)
 
 
 class _TicketCursorPagination(CursorPagination):
-    """Cursor pagination for maintenance ticket lists, newest first."""
 
     ordering = "-created_at"
 
 
 class TicketListCreateView(APIView):
-    """
-    GET  /maintenance/tickets/ — list authenticated resident's tickets (US-026)
-    POST /maintenance/tickets/ — create a new ticket with optional photos (US-025)
-
-    POST accepts multipart/form-data. Photos are in request.FILES["photos"].
-    """
 
     permission_classes = _RESIDENT
 
@@ -57,7 +50,6 @@ class TicketListCreateView(APIView):
         )
         status_filter = request.query_params.get("status")
         if status_filter:
-            # HIGH-004: validate against enum — invalid values return 400, not empty set
             if status_filter not in TicketStatus.values:
                 from rest_framework.exceptions import ValidationError
 
@@ -83,7 +75,6 @@ class TicketListCreateView(APIView):
         serializer.is_valid(raise_exception=True)
         d = serializer.validated_data
 
-        # Photos from multipart upload — getlist handles 0..N files
         photos = request.FILES.getlist("photos")
 
         ticket = MaintenanceService.create_ticket(
@@ -101,7 +92,6 @@ class TicketListCreateView(APIView):
 
 
 class TicketDetailView(APIView):
-    """GET /maintenance/tickets/{id}/ — ticket detail with status history (US-027)."""
 
     permission_classes = _RESIDENT
 

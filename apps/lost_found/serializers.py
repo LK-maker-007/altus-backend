@@ -8,7 +8,6 @@ from apps.lost_found.models import LostFoundReport
 
 
 class LostFoundReportSerializer(serializers.ModelSerializer[LostFoundReport]):
-    """Read serializer for lost & found report list/create (api-contract §10)."""
 
     class Meta:
         model = LostFoundReport

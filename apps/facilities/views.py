@@ -29,26 +29,16 @@ from apps.users.permissions import IsResidentOrAdmin
 
 logger = structlog.get_logger(__name__)
 
-# Tuples: immutable → no RUF012; Sequence[type[BasePermission]] satisfies DRF stubs
 _RESIDENT_OR_ADMIN: Sequence[type[BasePermission]] = (
     IsAuthenticated,
     IsResidentOrAdmin,
 )
 
 _MAX_BOOKING_WINDOW_DAYS = 7
-# WHY _MAX_SSE_ITERATIONS (SSE thread lifetime limit):
-#   Each SSE client occupies one gthread worker thread for the connection lifetime.
-#   Without a max iteration, a thread is held until the TCP connection drops —
-#   which could be hours (keep-alive, mobile app backgrounded). With 5 workers x
-#   4 threads = 20 capacity, 20 idle clients with open SSE connections exhaust
-#   all threads. 12 iterations x 25s = 5 minutes max. The client receives a
-#   stream-end signal and reconnects automatically via EventSource retry logic.
-#   Source: MDN EventSource §reconnection; audit §Critical §SSE.
-_MAX_SSE_ITERATIONS = 12  # 12 x 25 s = 5-minute max connection lifetime
+_MAX_SSE_ITERATIONS = 12
 
 
 def _parse_and_validate_date(date_str: str) -> date:
-    """Parse and validate the ?date= query param. Raises ValidationError on failure."""
     if not date_str:
         raise ValidationError("date query parameter is required (YYYY-MM-DD).")
     try:
@@ -66,7 +56,6 @@ def _parse_and_validate_date(date_str: str) -> date:
 
 
 class FacilityListView(APIView):
-    """GET /facilities/ — list all active facilities for the resident's complex."""
 
     permission_classes = _RESIDENT_OR_ADMIN
 
@@ -84,7 +73,6 @@ class FacilityListView(APIView):
 
 
 class FacilityDetailView(APIView):
-    """GET /facilities/{id}/ — single facility detail."""
 
     permission_classes = _RESIDENT_OR_ADMIN
 
@@ -102,9 +90,6 @@ class FacilityDetailView(APIView):
 
 
 class FacilitySlotsView(APIView):
-    """GET /facilities/{id}/slots/?date=YYYY-MM-DD — computed slot grid.
-    Cached in Redis at 30-second TTL per api-contract §3.
-    """
 
     permission_classes = _RESIDENT_OR_ADMIN
 
@@ -139,27 +124,6 @@ class FacilitySlotsView(APIView):
 
 
 class SseTicketIssueView(APIView):
-    """POST /facilities/sse-ticket/
-
-    Issues a 60-second, single-use SSE authentication ticket.
-
-    WHY this exists (the SSE auth problem):
-      The native EventSource API cannot set custom headers (e.g.
-      Authorization: Bearer). Passing a JWT in ?token= exposes it in server
-      logs, nginx access logs, browser history, and Referer headers permanently.
-      The ticket exchange pattern solves this:
-
-        1. Client POSTs here with their normal Authorization: Bearer JWT.
-        2. Server creates a 60s single-use UUID ticket in Redis.
-        3. Client opens SSE stream with ?ticket=<uuid>.
-        4. JWTAuthMiddleware burns the ticket and sets request.user.
-        5. Even if ?ticket=... appears in a log, it is already consumed.
-
-    Ticket TTL: 60 seconds — enough to open an EventSource connection on a
-    mobile network; harmless if captured in a log after expiry.
-
-    Source: 2026 SSE auth best practice; audit §P0 §SSE Token in Query Param.
-    """
 
     permission_classes: Sequence[type[BasePermission]] = (IsAuthenticated,)
 
@@ -181,8 +145,6 @@ class SseTicketIssueView(APIView):
             f"{_SSE_TICKET_PREFIX}{ticket}",
             {
                 "user_id": str(user.id),
-                # WHY str(complex_id or ""): Redis serialisation treats None as
-                # the string 'None'. An empty string is safe for downstream checks.
                 "complex_id": str(user.complex_id or ""),
             },
             timeout=_SSE_TICKET_TTL,
@@ -196,38 +158,18 @@ class SseTicketIssueView(APIView):
 
 
 class FacilitySlotStreamView(APIView):
-    """GET /facilities/{id}/slots/stream/?date=YYYY-MM-DD&ticket=<uuid>
-
-    SSE stream for real-time slot availability updates.
-
-    Auth flow (ticket exchange):
-      EventSource cannot set Authorization headers. Clients must first POST
-      /facilities/sse-ticket/ to exchange their JWT for a 60s single-use
-      ticket, then pass ?ticket=<uuid> here. JWTAuthMiddleware resolves the
-      ticket to request.user and burns it on first use.
-
-      The ?token=<jwt> pattern described in earlier versions of this docstring
-      was INCORRECT — JWTAuthMiddleware never read ?token=. Ticket exchange
-      is the correct and secure implementation.
-
-    Source: audit §P0 §SSE Token in Query Param; 2026 SSE auth best practice.
-    """
 
     permission_classes = _RESIDENT_OR_ADMIN
 
     @extend_schema(
-        # SSE stream — returns StreamingHttpResponse, not JSON schema-able
         exclude=True,
     )
     def get(
         self, request: Request, facility_id: str
     ) -> StreamingHttpResponse | Response:
-        # Capture complex_id before entering the generator — RLS middleware
-        # does not run inside StreamingHttpResponse iteration.
         complex_id = str(getattr(request, "complex_id", ""))
         target_date = _parse_and_validate_date(request.query_params.get("date", ""))
 
-        # Must use unscoped manager here — RLS is not active in the generator.
         facility = Facility.unscoped.filter(
             id=facility_id, complex_id=complex_id, is_active=True
         ).first()
@@ -239,7 +181,7 @@ class FacilitySlotStreamView(APIView):
             content_type="text/event-stream",
         )
         response["Cache-Control"] = "no-cache"
-        response["X-Accel-Buffering"] = "no"  # Nginx must not buffer SSE chunks
+        response["X-Accel-Buffering"] = "no"
         return response
 
 
@@ -248,9 +190,6 @@ def _slot_event_stream(
     target_date: date,
     complex_id: str,
 ) -> Generator[str]:
-    """SSE generator. Yields initial availability, then diffs on booking changes.
-    Must be module-level — Django iterates this outside the request lifecycle.
-    """
     from django.utils import timezone as tz
 
     slots = SlotComputeService.compute_slots(facility, target_date)
@@ -268,7 +207,6 @@ def _slot_event_stream(
         time.sleep(25)
         yield "event: ping\ndata: {}\n\n"
 
-        # Unscoped manager with explicit filters — RLS is not active here.
         changed = Booking.unscoped.filter(
             facility_id=facility.id,
             complex_id=complex_id,
@@ -288,7 +226,4 @@ def _slot_event_stream(
             )
             yield f"event: availability\ndata: {payload}\n\n"
 
-    # Stream closed after _MAX_SSE_ITERATIONS. The EventSource client will
-    # automatically reconnect (default retry: 3s). Reconnection fetches a fresh
-    # slot state, so no stale data is displayed during the reconnect window.
     yield 'event: stream-end\ndata: {"reason": "reconnect"}\n\n'

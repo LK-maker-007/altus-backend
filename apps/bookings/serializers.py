@@ -46,7 +46,6 @@ class BookingReadSerializer(serializers.ModelSerializer[Booking]):
 
 
 class BookingHoldResponseSerializer(serializers.ModelSerializer[Booking]):
-    """Hold/confirm response — facility_id flat per api-contract §4."""
 
     facility_id = serializers.UUIDField(source="facility.id", read_only=True)
 

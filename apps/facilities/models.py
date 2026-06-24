@@ -8,8 +8,6 @@ from apps.core.models import ComplexScopedModel, TimestampedModel
 
 
 class OperatingHours(TypedDict):
-    """Shape of the operating_hours JSONB column.
-    Days use ISO weekday numbering: 0=Monday, 6=Sunday."""
 
     start: str
     end: str
@@ -28,16 +26,13 @@ class Facility(ComplexScopedModel, TimestampedModel):
     name = models.CharField(max_length=200)
     category = models.CharField(max_length=30, choices=FacilityCategory.choices)
     requires_booking = models.BooleanField(default=True)
-    # Null = open-access facility (Library, Outdoor Play Area). See PRD §4.3.
     capacity = models.SmallIntegerField(null=True, blank=True)
     operating_hours = models.JSONField()
     is_active = models.BooleanField(default=True)
 
     class Meta:
         indexes: ClassVar[list[models.Index]] = [
-            # Facility list by category — primary read path for the facilities screen
             models.Index(fields=["complex", "category", "is_active"]),
-            # Split bookable vs open-access facilities
             models.Index(fields=["complex", "requires_booking"]),
         ]
         constraints: ClassVar[list[models.BaseConstraint]] = [

@@ -30,7 +30,6 @@ class Package(ComplexScopedModel, TimestampedModel):
         choices=PackageStatus.choices,
         default=PackageStatus.PENDING,
     )
-    # created_at from TimestampedModel serves as logged_at
     collected_at = models.DateTimeField(null=True, blank=True)
     collected_by = models.ForeignKey(
         "users.User",
@@ -42,9 +41,7 @@ class Package(ComplexScopedModel, TimestampedModel):
 
     class Meta:
         indexes: ClassVar[list[models.Index]] = [
-            # Pending packages for a unit — resident view
             models.Index(fields=["unit", "status", "created_at"]),
-            # Admin view of all packages for a complex, most recent first
             models.Index(fields=["complex", "status", "created_at"]),
         ]
         constraints: ClassVar[list[models.BaseConstraint]] = [

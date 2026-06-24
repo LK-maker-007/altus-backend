@@ -45,24 +45,11 @@ class Visitor(ComplexScopedModel, TimestampedModel):
 
     class Meta:
         indexes: ClassVar[list[models.Index]] = [
-            # Gate verification lookup — must be sub-100ms per US-021
             models.Index(fields=["complex", "otp_code", "status"]),
-            # Visitor history for a unit, newest first
             models.Index(fields=["unit", "created_at"]),
-            # Expiry cleanup sweep
             models.Index(fields=["status", "expected_until"]),
         ]
         constraints: ClassVar[list[models.BaseConstraint]] = [
-            # WHY condition=Q(status=VisitorStatus.PENDING):
-            #   Without a partial condition, ARRIVED and EXPIRED visitor records
-            #   permanently consume their OTP code, depleting the 1,000,000-code space
-            #   over time. A busy complex with 100 visitors/day exhausts its code space
-            #   in ~27 years — which is a real operational cliff.
-            #   With the partial condition, only PENDING codes are unique-constrained;
-            #   completed/expired codes are free to be reused for new visitors.
-            #   The service layer's _generate_unique_otp already filters status=PENDING
-            #   — this constraint now matches that application-layer logic exactly.
-            #   Source: Google Principal Architect review — "SIGNIFICANT" §visitor-otp
             models.UniqueConstraint(
                 fields=["complex", "otp_code"],
                 condition=models.Q(status=VisitorStatus.PENDING),

@@ -10,10 +10,6 @@ from apps.core.admin import ComplexScopedModelAdmin
 
 @admin.register(Announcement)
 class AnnouncementAdmin(ComplexScopedModelAdmin):
-    """Admin for creating and managing announcements.
-
-    Triggers push notification fan-out on save via Celery task.
-    """
 
     list_display = ("title", "category", "is_active", "created_at")
     list_filter = ("category", "is_active")
@@ -29,8 +25,6 @@ class AnnouncementAdmin(ComplexScopedModelAdmin):
     ) -> None:
         super().save_model(request, obj, form, change)
 
-        # Dispatch push notification only on NEW announcements (not edits).
-        # on_commit fires after the outermost transaction — never on rollback.
         if not change and obj.is_active:
             from apps.community.tasks import send_announcement_push
 

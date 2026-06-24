@@ -9,7 +9,6 @@ from tests.factories.user_factory import UserFactory
 
 
 class AnnouncementFactory(DjangoModelFactory):
-    """Factory for community Announcement instances."""
 
     class Meta:
         model = Announcement

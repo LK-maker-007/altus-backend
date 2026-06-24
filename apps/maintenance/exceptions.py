@@ -4,7 +4,6 @@ from rest_framework.exceptions import APIException
 
 
 class TicketNotFoundError(APIException):
-    """Ticket not found or does not belong to the requesting resident (US-027)."""
 
     status_code = 404
     default_code = "NOT_FOUND"
@@ -12,7 +11,6 @@ class TicketNotFoundError(APIException):
 
 
 class TicketPhotoValidationError(APIException):
-    """Photo upload validation failure — bad MIME type, size, or count."""
 
     status_code = 400
     default_code = "VALIDATION_ERROR"
@@ -20,7 +18,6 @@ class TicketPhotoValidationError(APIException):
 
 
 class TicketAccessDeniedError(APIException):
-    """Resident attempted to access a ticket raised by another resident."""
 
     status_code = 403
     default_code = "PERMISSION_DENIED"

@@ -1,10 +1,5 @@
 from __future__ import annotations
 
-"""
-Slot computation tests — compute_slots() pure function correctness.
-Coverage target: apps/facilities/services.py
-"""
-
 from datetime import date, datetime, timedelta
 from typing import Any
 
@@ -20,10 +15,8 @@ from tests.factories.facility_factory import FacilityFactory
 
 @pytest.mark.django_db
 class TestComputeSlots:
-    """SlotComputeService.compute_slots() pure function correctness."""
 
     def test_returns_correct_slot_count_for_full_day(self, complex_a: Any) -> None:
-        """Gym open 06:00-22:00, 60-min slots -> 16 slots on any day."""
         facility = FacilityFactory(
             complex=complex_a,
             operating_hours={
@@ -41,24 +34,21 @@ class TestComputeSlots:
         assert "22:00" in slots[-1]["slot_end"]
 
     def test_closed_day_returns_empty_list(self, complex_a: Any) -> None:
-        """A facility closed on weekends must return [] for a Saturday request."""
         facility = FacilityFactory(
             complex=complex_a,
             operating_hours={
                 "start": "06:00",
                 "end": "22:00",
                 "slot_duration_minutes": 60,
-                "days": [0, 1, 2, 3, 4],  # Mon-Fri only
+                "days": [0, 1, 2, 3, 4],
             },
         )
 
-        # April 26, 2026 is a Saturday (weekday = 5)
         slots = SlotComputeService.compute_slots(facility, date(2026, 4, 26))
 
         assert slots == []
 
     def test_confirmed_booking_marks_slot_unavailable(self, complex_a: Any) -> None:
-        """A CONFIRMED booking for a slot must mark that slot as unavailable."""
         facility = FacilityFactory(
             complex=complex_a,
             operating_hours={
@@ -96,7 +86,6 @@ class TestComputeSlots:
         assert slot_7am["status"] == "unavailable"
 
     def test_expired_hold_does_not_block_slot(self, complex_a: Any) -> None:
-        """An expired HOLD must not mark the slot unavailable."""
         facility = FacilityFactory(
             complex=complex_a,
             operating_hours={
@@ -130,7 +119,7 @@ class TestComputeSlots:
                 expires_at=timezone.now() + timedelta(minutes=5),
             )
 
-        with freeze_time("2026-04-22 10:06:00"):  # hold has expired
+        with freeze_time("2026-04-22 10:06:00"):
             slots = SlotComputeService.compute_slots(facility, date(2026, 4, 23))
 
         slot_7am = next(s for s in slots if "T07:00" in s["slot_start"])

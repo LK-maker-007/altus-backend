@@ -8,9 +8,6 @@ from apps.users.models import User
 
 @admin.register(User)
 class UserAdmin(ComplexScopedModelAdmin):
-    """
-    User admin — uses ComplexScopedModelAdmin for role-based complex isolation (§7.3).
-    """
 
     list_display = [
         "phone_number",

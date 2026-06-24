@@ -1,20 +1,10 @@
-"""
-apps/lost_found/views.py
-
-WHY views delegate to LostFoundService (not implement logic directly):
-  ADR-010 mandates that all business logic lives in the service layer.
-  Views are thin HTTP adapters — they validate auth, call the service,
-  and serialise the response. Refactored from DRF generics.ListCreateAPIView
-  where perform_create() contained tenant-scoping logic directly in the view.
-  Source: audit §P2 §lost_found app violates ADR-010.
-"""
-
 from __future__ import annotations
 
 from collections.abc import Sequence
 from typing import cast
 
 from drf_spectacular.utils import extend_schema
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.pagination import CursorPagination
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
@@ -28,23 +18,18 @@ from apps.users.models import User
 _AUTH: Sequence[type[BasePermission]] = (IsAuthenticated,)
 
 
-class _LostFoundCursorPagination(CursorPagination):
-    """Cursor pagination for lost & found reports, newest first.
+def _require_complex_id(user: User) -> str:
+    if user.complex_id is None:
+        raise PermissionDenied("This endpoint is scoped to a complex.")
+    return str(user.complex_id)
 
-    Explicit ordering prevents the global CursorPagination default field
-    "-created" from being applied — the field is "-created_at".
-    Same fix as _AnnouncementCursorPagination in community/views.py.
-    """
+
+class _LostFoundCursorPagination(CursorPagination):
 
     ordering = "-created_at"
 
 
 class LostFoundListCreateView(APIView):
-    """GET/POST /lost-found/ — list & create lost and found reports.
-
-    Open to all authenticated roles — residents and security can both post.
-    Filtered by `type` query param (lost, found). Cursor pagination.
-    """
 
     permission_classes = _AUTH
 
@@ -58,7 +43,7 @@ class LostFoundListCreateView(APIView):
         report_type = request.query_params.get("type")
 
         qs = LostFoundService.list_reports(
-            complex_id=str(user.complex_id or ""),
+            complex_id=_require_complex_id(user),
             report_type=report_type,
         )
 
@@ -75,6 +60,7 @@ class LostFoundListCreateView(APIView):
     )
     def post(self, request: Request) -> Response:
         user = cast(User, request.user)
+        _require_complex_id(user)
         serializer = LostFoundReportSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 

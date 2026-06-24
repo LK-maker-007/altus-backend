@@ -8,7 +8,6 @@ from apps.lost_found.models import LostFoundReport
 
 @admin.register(LostFoundReport)
 class LostFoundReportAdmin(ComplexScopedModelAdmin):
-    """Admin for lost and found reports. Read-only — no business logic here."""
 
     list_display = ("report_type", "description", "status", "reported_by", "created_at")
     list_filter = ("report_type", "status")

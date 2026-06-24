@@ -10,7 +10,6 @@ from tests.factories.user_factory import UserFactory
 
 
 class MaintenanceTicketFactory(DjangoModelFactory):
-    """Factory for MaintenanceTicket instances."""
 
     class Meta:
         model = MaintenanceTicket

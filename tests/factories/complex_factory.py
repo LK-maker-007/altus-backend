@@ -7,7 +7,6 @@ from apps.core.models import Complex
 
 
 class ComplexFactory(DjangoModelFactory):
-    """Factory for the root tenant Complex model."""
 
     class Meta:
         model = Complex

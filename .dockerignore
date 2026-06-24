@@ -1,0 +1,53 @@
+# Keep the build context (and final image) minimal and secret-free.
+
+# Version control
+.git
+.gitignore
+.gitattributes
+.github
+
+# Python bytecode & tool caches
+__pycache__/
+*.py[cod]
+*.egg-info/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.hypothesis/
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# Secrets / local env — never bake into an image
+.env
+.env.*
+
+# Test & coverage artifacts
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# Not needed at runtime
+native-vault/
+docs/
+load-tests/
+tests/
+*.md
+Makefile
+docker-compose.yml
+Dockerfile
+.dockerignore
+
+# Local DB / generated assets (collected inside the image/at deploy)
+db.sqlite3
+media/
+staticfiles/
+
+# OS / editor cruft
+.DS_Store
+.vscode/
+.idea/
+*.swp

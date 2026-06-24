@@ -10,17 +10,11 @@ from apps.emergency.services import _cache_key
 
 
 def _invalidate_cache(complex_id: str) -> None:
-    """Clear the emergency contacts Redis cache for a given complex."""
     cache.delete(_cache_key(complex_id))
 
 
 @admin.register(EmergencyContact)
 class EmergencyContactAdmin(ComplexScopedModelAdmin):
-    """Admin for managing emergency contacts.
-
-    Invalidates the Redis contacts cache on every save or delete so that
-    residents see the updated list within seconds, not hours.
-    """
 
     list_display = ("name", "role", "phone_number", "display_order", "is_active")
     list_filter = ("is_active",)

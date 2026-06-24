@@ -10,7 +10,6 @@ from tests.factories.user_factory import UserFactory
 
 
 class PackageFactory(DjangoModelFactory):
-    """Factory for Package (incoming parcel) instances."""
 
     class Meta:
         model = Package

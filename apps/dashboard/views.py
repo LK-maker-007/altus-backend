@@ -22,15 +22,6 @@ _RESIDENT: Sequence[type[BasePermission]] = (IsAuthenticated, IsResident)
 
 
 class DashboardView(APIView):
-    """GET /dashboard/ — aggregated home screen for the resident (api-contract §11).
-
-    Returns:
-    - upcoming_bookings: next 2 confirmed bookings after now, soonest first.
-    - recent_announcements: latest 3 active announcements with 120-char preview.
-    - open_ticket_count: count of resident's open/in-progress maintenance tickets.
-
-    3 queries total. No caching — response is resident-specific.
-    """
 
     permission_classes = _RESIDENT
 
@@ -67,18 +58,12 @@ class DashboardView(APIView):
 
         recent_announcements = (
             Announcement.objects.filter(is_active=True)
-            # WHY select_related("created_by"):
-            #   AnnouncementDashboardSerializer accesses created_by.name.
-            #   Without this, each announcement fires one extra query — N+1 on
-            #   the hottest read path in the system. AnnouncementListView already
-            #   does this correctly; the dashboard was the only missing callsite.
-            #   Source: audit §P1 §Dashboard N+1.
-            .select_related("created_by").order_by("-created_at")[:3]
+            .select_related("created_by")
+            .order_by("-created_at")[:3]
         )
 
         open_ticket_count = MaintenanceTicket.objects.filter(
             raised_by=resident,
-            # CRIT-001: use enum values — never hardcoded strings
             status__in=[TicketStatus.OPEN, TicketStatus.IN_PROGRESS],
         ).count()
 

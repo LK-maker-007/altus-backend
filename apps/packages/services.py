@@ -3,16 +3,16 @@ from __future__ import annotations
 from django.db import transaction
 from django.utils import timezone
 
-from apps.packages.exceptions import PackageAlreadyCollectedError, PackageNotFoundError
+from apps.packages.exceptions import (
+    PackageAlreadyCollectedError,
+    PackageNotFoundError,
+    PackagePermissionError,
+)
 from apps.packages.models import Package, PackageStatus
-from apps.users.models import User
+from apps.users.models import User, UserRole
 
 
 class PackageService:
-    """Business logic for package logging and collection.
-
-    All methods are stateless @staticmethod — class is a namespace (ADR-010).
-    """
 
     @staticmethod
     def log_package(
@@ -23,12 +23,6 @@ class PackageService:
         description: str,
         notes: str,
     ) -> Package:
-        """Log an incoming package against a unit (US-024).
-
-        Resolves the unit by number + block within the complex. The unit lookup
-        must be strict — security staff can mistype; never silently fall through.
-        Enqueues a push notification to the registered resident via on_commit.
-        """
         from apps.core.models import Unit
 
         try:
@@ -50,9 +44,6 @@ class PackageService:
                 status=PackageStatus.PENDING,
             )
 
-            # Notify the registered resident if one exists and has a push token.
-            # on_commit fires after the outermost transaction commits — not on rollback.
-            # Deferred import — breaks services→tasks circular import.
             from apps.packages.tasks import notify_package_arrived
 
             resident = unit.registered_resident
@@ -66,7 +57,6 @@ class PackageService:
                     )
                 )
 
-        # CRIT-005: select_related avoids refresh_from_db() N+1 in view
         return Package.unscoped.select_related("unit").get(pk=package.pk)
 
     @staticmethod
@@ -75,11 +65,6 @@ class PackageService:
         complex_id: str,
         collector: User,
     ) -> Package:
-        """Mark a package as collected by the resident or security (US-026).
-
-        select_for_update(nowait=True) prevents a race condition where two
-        concurrent requests both attempt to collect the same package.
-        """
         with transaction.atomic():
             try:
                 package = Package.unscoped.select_for_update(nowait=True).get(
@@ -88,6 +73,14 @@ class PackageService:
                 )
             except Package.DoesNotExist:
                 raise PackageNotFoundError() from None
+
+            # A resident may collect only their own unit's package; security/admin
+            # collect on anyone's behalf. complex scoping alone is not enough here.
+            if (
+                collector.role == UserRole.RESIDENT
+                and package.unit_id != collector.unit_id
+            ):
+                raise PackagePermissionError()
 
             if package.status == PackageStatus.COLLECTED:
                 raise PackageAlreadyCollectedError()

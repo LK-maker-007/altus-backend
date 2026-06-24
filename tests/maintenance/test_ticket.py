@@ -1,22 +1,5 @@
 from __future__ import annotations
 
-"""
-Maintenance ticket tests - creation, idempotency, photo bypass, status history.
-
-Coverage target: apps/maintenance/services.py
-
-Verified service signature (2026-04-23):
-  MaintenanceService.create_ticket(
-      resident, category, description, photos, client_idempotency_key=None, queued_at=None
-  )
-  - unit resolved internally via Unit.objects.get(registered_resident=resident)
-  - complex_id resolved from resident.complex_id
-  - Raises TicketNotFoundError if resident has no linked unit
-
-NOTE: The test for create_ticket_returns_open_ticket patches apps.maintenance.services._upload_photo_to_r2
-(NOT apps.maintenance._upload_photo_to_r2 — the function lives in the services module).
-"""
-
 from typing import Any
 from unittest.mock import patch
 
@@ -34,13 +17,10 @@ from tests.factories.maintenance_factory import MaintenanceTicketFactory
 
 @pytest.mark.django_db
 class TestTicketCreation:
-    """US-019 - Resident creates a maintenance ticket."""
 
     def test_create_ticket_returns_open_ticket(
         self, complex_a: Any, unit_a: Any, resident: Any
     ) -> None:
-        """Happy path - service creates an OPEN ticket and initial history entry."""
-        # Photos are empty — no R2 upload needed, so no mock required
         ticket = MaintenanceService.create_ticket(
             resident=resident,
             category=TicketCategory.PLUMBING,
@@ -58,14 +38,13 @@ class TestTicketCreation:
     def test_create_ticket_with_photo_calls_r2_upload(
         self, complex_a: Any, unit_a: Any, resident: Any
     ) -> None:
-        """A ticket with photos must attempt the R2 upload — patched at the module level."""
         from unittest.mock import MagicMock
 
         mock_photo = MagicMock()
         mock_photo.name = "photo.jpg"
         mock_photo.size = 1024
         mock_photo.content_type = "image/jpeg"
-        mock_photo.read.return_value = b"\xff\xd8\xff"  # JPEG magic bytes
+        mock_photo.read.return_value = b"\xff\xd8\xff"
         mock_photo.seek.return_value = None
 
         with (
@@ -90,12 +69,6 @@ class TestTicketCreation:
     def test_idempotency_key_deduplicates_retry(
         self, complex_a: Any, unit_a: Any, resident: Any
     ) -> None:
-        """
-        Same idempotency_key submitted twice → returns existing ticket, no duplicate.
-
-        This covers offline-queued tickets retried after a network reconnect.
-        Source: database-schema.md section 3.10, offline-strategy.md section 3.
-        """
         import uuid
 
         key = uuid.UUID("aaaaaaaa-0000-0000-0000-000000000002")
@@ -124,7 +97,6 @@ class TestTicketCreation:
     def test_create_ticket_writes_initial_status_history(
         self, complex_a: Any, unit_a: Any, resident: Any
     ) -> None:
-        """Ticket creation must write a OPEN TicketStatusHistory entry automatically."""
         ticket = MaintenanceService.create_ticket(
             resident=resident,
             category=TicketCategory.CARPENTRY,
@@ -139,16 +111,14 @@ class TestTicketCreation:
         first = history.first()
         assert first is not None
         assert first.status == TicketStatus.OPEN
-        assert first.changed_by is None  # system-generated on creation
+        assert first.changed_by is None
 
     def test_resident_without_unit_raises_ticket_not_found(
         self, complex_a: Any
     ) -> None:
-        """A resident with no linked unit must raise TicketNotFoundError."""
         from apps.maintenance.exceptions import TicketNotFoundError
         from tests.factories.user_factory import UserFactory
 
-        # Create a user with no unit linked (unit_id will be None by default)
         orphan = UserFactory(
             complex=complex_a,
             phone_number="+919000000077",
@@ -166,17 +136,10 @@ class TestTicketCreation:
 
 @pytest.mark.django_db
 class TestTicketStatusFromFactory:
-    """
-    Tests via factory (bypassing the service) for admin-facing status transitions.
-
-    The admin-facing update_status path is exposed through views.
-    These tests verify model-layer behaviour only.
-    """
 
     def test_ticket_history_is_append_only(
         self, complex_a: Any, unit_a: Any, resident: Any, admin_user: Any
     ) -> None:
-        """Multiple TicketStatusHistory rows must be created, never overwritten."""
         ticket = MaintenanceTicketFactory(
             complex=complex_a,
             unit=unit_a,
@@ -184,7 +147,6 @@ class TestTicketStatusFromFactory:
             status=TicketStatus.OPEN,
         )
 
-        # Simulate two sequential admin status changes directly at model layer
         TicketStatusHistory.objects.create(
             ticket=ticket,
             status=TicketStatus.IN_PROGRESS,
@@ -206,7 +168,6 @@ class TestTicketStatusFromFactory:
     def test_factory_creates_ticket_with_open_status(
         self, complex_a: Any, unit_a: Any, resident: Any
     ) -> None:
-        """Sanity check - factory defaults produce a valid OPEN ticket."""
         ticket = MaintenanceTicketFactory(
             complex=complex_a,
             unit=unit_a,
@@ -216,20 +177,8 @@ class TestTicketStatusFromFactory:
         assert ticket.complex_id == complex_a.id
 
 
-# ── _validate_photos ───────────────────────────────────────────────────────────
-
-
 @pytest.mark.django_db
 class TestPhotoValidation:
-    """
-    Unit tests for apps.maintenance.services._validate_photos (lines 54-71).
-
-    _validate_photos uses python-magic (production.txt) which is not installed
-    in the test venv. We patch "magic.from_buffer" at the point where it is
-    imported inside the function (deferred import inside services.py line 54).
-
-    Photo count, size, and MIME validation are all tested independently.
-    """
 
     def _make_photo(
         self,
@@ -238,7 +187,6 @@ class TestPhotoValidation:
         size: int = 1024,
         content: bytes = b"\xff\xd8\xff",
     ) -> Any:
-        """Return a minimal MagicMock mimicking a Django UploadedFile."""
         from unittest.mock import MagicMock
 
         photo = MagicMock()
@@ -249,19 +197,14 @@ class TestPhotoValidation:
         return photo
 
     def test_too_many_photos_raises(self) -> None:
-        """More than 3 photos → TicketPhotoValidationError before any MIME check.
-        python-magic is not installed on dev/CI machines — inject the fake module
-        before calling _validate_photos(), which does `import magic` before the count check.
-        """
         import sys
         import types
 
         from apps.maintenance.exceptions import TicketPhotoValidationError
         from apps.maintenance.services import _validate_photos
 
-        # Inject fake magic module — count check raises before MIME detection
         fake_magic = types.ModuleType("magic")
-        fake_magic.from_buffer = lambda buf, mime=False: "image/jpeg"  # type: ignore[attr-defined]
+        fake_magic.from_buffer = lambda buf, mime=False: "image/jpeg"
         sys.modules.setdefault("magic", fake_magic)
 
         photos = [self._make_photo() for _ in range(4)]
@@ -270,24 +213,21 @@ class TestPhotoValidation:
             _validate_photos(photos)
 
     def test_photo_exceeds_size_limit_raises(self, mocker: Any) -> None:
-        """A photo larger than 5 MB → TicketPhotoValidationError."""
         import sys
         import types
 
         from apps.maintenance.exceptions import TicketPhotoValidationError
         from apps.maintenance.services import _validate_photos
 
-        # python-magic is production-only — inject a fake module for the deferred import
         fake_magic = types.ModuleType("magic")
-        fake_magic.from_buffer = lambda buf, mime=False: "image/jpeg"  # type: ignore[attr-defined]
+        fake_magic.from_buffer = lambda buf, mime=False: "image/jpeg"
         sys.modules.setdefault("magic", fake_magic)
-        oversized = self._make_photo(size=6 * 1024 * 1024)  # 6 MB
+        oversized = self._make_photo(size=6 * 1024 * 1024)
 
         with pytest.raises(TicketPhotoValidationError, match="exceeds the 5 MB"):
             _validate_photos([oversized])
 
     def test_disallowed_mime_type_raises(self, mocker: Any) -> None:
-        """A file detected as image/gif → TicketPhotoValidationError."""
         import sys
         import types
 
@@ -295,7 +235,7 @@ class TestPhotoValidation:
         from apps.maintenance.services import _validate_photos
 
         fake_magic = types.ModuleType("magic")
-        fake_magic.from_buffer = lambda buf, mime=False: "image/gif"  # type: ignore[attr-defined]
+        fake_magic.from_buffer = lambda buf, mime=False: "image/gif"
         sys.modules["magic"] = fake_magic
         gif = self._make_photo(name="file.gif")
 
@@ -303,65 +243,47 @@ class TestPhotoValidation:
             _validate_photos([gif])
 
     def test_valid_jpeg_passes(self, mocker: Any) -> None:
-        """A valid JPEG within size limits must pass without raising."""
         import sys
         import types
 
         from apps.maintenance.services import _validate_photos
 
         fake_magic = types.ModuleType("magic")
-        fake_magic.from_buffer = lambda buf, mime=False: "image/jpeg"  # type: ignore[attr-defined]
+        fake_magic.from_buffer = lambda buf, mime=False: "image/jpeg"
         sys.modules["magic"] = fake_magic
         jpeg = self._make_photo(name="photo.jpg", size=2 * 1024 * 1024)
 
-        # Must not raise
         _validate_photos([jpeg])
 
     def test_valid_png_passes(self, mocker: Any) -> None:
-        """A valid PNG must pass — image/png is in _ALLOWED_MIME_TYPES."""
         import sys
         import types
 
         from apps.maintenance.services import _validate_photos
 
         fake_magic = types.ModuleType("magic")
-        fake_magic.from_buffer = lambda buf, mime=False: "image/png"  # type: ignore[attr-defined]
+        fake_magic.from_buffer = lambda buf, mime=False: "image/png"
         sys.modules["magic"] = fake_magic
         png = self._make_photo(name="photo.png")
 
         _validate_photos([png])
 
     def test_valid_heic_passes(self, mocker: Any) -> None:
-        """A valid HEIC (iPhone photo) must pass — image/heic is allowed."""
         import sys
         import types
 
         from apps.maintenance.services import _validate_photos
 
         fake_magic = types.ModuleType("magic")
-        fake_magic.from_buffer = lambda buf, mime=False: "image/heic"  # type: ignore[attr-defined]
+        fake_magic.from_buffer = lambda buf, mime=False: "image/heic"
         sys.modules["magic"] = fake_magic
         heic = self._make_photo(name="photo.heic")
 
         _validate_photos([heic])
 
 
-# ── _upload_photo_to_r2 ────────────────────────────────────────────────────────
-
-
 @pytest.mark.django_db
 class TestR2Upload:
-    """
-    Unit tests for apps.maintenance.services._upload_photo_to_r2 (lines 84-101)
-    and _get_r2_client (lines 36-38).
-
-    boto3 is not installed in the test venv (it's in production.txt).
-    We patch "boto3.client" where it is imported (deferred inside _get_r2_client).
-
-    R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET_NAME,
-    and R2_PUBLIC_URL are all in settings.test — confirmed in config/settings/test.py.
-    We override them via Django's override_settings to ensure isolation.
-    """
 
     def _make_photo(
         self,
@@ -377,10 +299,6 @@ class TestR2Upload:
         return photo
 
     def test_upload_returns_public_url(self, mocker: Any, settings: Any) -> None:
-        """
-        Happy path — boto3 upload_fileobj succeeds.
-        Return value must be {R2_PUBLIC_URL}/tickets/{ticket_id}/{uuid}.{ext}.
-        """
         from apps.maintenance.services import _upload_photo_to_r2
 
         settings.R2_PUBLIC_URL = "https://media.example.com"
@@ -399,7 +317,6 @@ class TestR2Upload:
 
         url = _upload_photo_to_r2(ticket_id, photo)
 
-        # URL must start with the public URL prefix and contain the ticket_id
         assert url.startswith("https://media.example.com/tickets/aabbccdd")
         assert url.endswith(".jpg")
         mock_client.upload_fileobj.assert_called_once()
@@ -407,11 +324,6 @@ class TestR2Upload:
     def test_upload_failure_raises_ticket_photo_validation_error(
         self, mocker: Any, settings: Any
     ) -> None:
-        """
-        boto3 upload_fileobj raises an exception (S3 error, network timeout, etc.).
-        _upload_photo_to_r2 must catch it and raise TicketPhotoValidationError
-        so that no partial ticket is written to the DB.
-        """
         from apps.maintenance.exceptions import TicketPhotoValidationError
         from apps.maintenance.services import _upload_photo_to_r2
 
@@ -435,10 +347,6 @@ class TestR2Upload:
     def test_ext_falls_back_to_jpg_when_name_has_no_extension(
         self, mocker: Any, settings: Any
     ) -> None:
-        """
-        photo.name has no '.' separator → ext defaults to 'jpg'.
-        Ensures the object_key ends in .jpg and the URL is valid.
-        """
         from apps.maintenance.services import _upload_photo_to_r2
 
         settings.R2_PUBLIC_URL = "https://media.example.com"
@@ -452,7 +360,7 @@ class TestR2Upload:
             "apps.maintenance.services._get_r2_client", return_value=mock_client
         )
 
-        photo = self._make_photo(name="noextension")  # no dot in filename
+        photo = self._make_photo(name="noextension")
         url = _upload_photo_to_r2("ticket-123", photo)
 
-        assert url.endswith(".noextension")  # rsplit(".", 1)[-1] → "noextension"
+        assert url.endswith(".noextension")

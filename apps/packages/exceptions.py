@@ -4,7 +4,6 @@ from rest_framework.exceptions import APIException
 
 
 class PackageNotFoundError(APIException):
-    """Unit not found in this complex, or package not found (US-024, US-026)."""
 
     status_code = 404
     default_code = "NOT_FOUND"
@@ -12,8 +11,14 @@ class PackageNotFoundError(APIException):
 
 
 class PackageAlreadyCollectedError(APIException):
-    """Package has already been collected — idempotency guard (US-026)."""
 
     status_code = 400
     default_code = "VALIDATION_ERROR"
     default_detail = "This package has already been collected."
+
+
+class PackagePermissionError(APIException):
+
+    status_code = 403
+    default_code = "PERMISSION_DENIED"
+    default_detail = "You can only collect packages addressed to your own unit."
